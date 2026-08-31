@@ -190,11 +190,6 @@ def create_simpler_adapter_wrapper(embodiment="widowx", action_ensemble_temp=-0.
       (the original Bridge behaviour, unchanged).
     - ``"google_robot"`` -> ``EDRSimplerAdapterRaw`` + ``fractal_statistics.json``
       (geometry only; the fractal checkpoint owns normalization).
-
-    Args:
-        embodiment: ``"widowx"`` or ``"google_robot"``.
-        action_ensemble_temp: Temperature for action ensembling
-                             (negative = more recent actions get more weight).
     """
     is_google = embodiment == "google_robot"
     stats_name = "fractal_statistics.json" if is_google else "bridge_statistics.json"

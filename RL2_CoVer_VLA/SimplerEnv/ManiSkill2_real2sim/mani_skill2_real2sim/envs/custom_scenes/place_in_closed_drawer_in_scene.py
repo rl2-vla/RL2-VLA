@@ -247,16 +247,11 @@ class PlaceObjectInClosedDrawerInSceneEnv(OpenDrawerInSceneEnv):
         return super().step(action)
     
     def get_language_instruction(self, **kwargs):
-        # RL2: keep the instruction fixed for the whole episode (no mid-episode
-        # subtask switch) -- always the final "place <object> into <drawer> drawer".
-        # Original two-subtask behaviour:
-        # if self.cur_subtask_id == 0:
-        #     return f"open {self.drawer_id} drawer"
-        # else:
-        #     model_name = self._get_instruction_obj_name(self.model_id)
-        #     return f"place {model_name} into {self.drawer_id} drawer"
-        model_name = self._get_instruction_obj_name(self.model_id)
-        return f"place {model_name} into {self.drawer_id} drawer"
+        if self.cur_subtask_id == 0:
+            return f"open {self.drawer_id} drawer"
+        else:
+            model_name = self._get_instruction_obj_name(self.model_id)
+            return f"place {model_name} into {self.drawer_id} drawer"
         
     def is_final_subtask(self):
         return self.cur_subtask_id == 1
