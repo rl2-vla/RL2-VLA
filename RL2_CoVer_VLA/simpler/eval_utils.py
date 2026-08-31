@@ -31,7 +31,7 @@ _int_act_path = _vla_clip_root / "INT-ACT"
 if str(_int_act_path) not in sys.path:
     sys.path.append(str(_int_act_path))
 
-from src.experiments.env_adapters.simpler import BridgeSimplerAdapter
+from src.experiments.env_adapters.simpler import BridgeSimplerAdapter, EDRSimplerAdapter
 
 
 # =========================================================================================
@@ -103,45 +103,201 @@ def get_simpler_dummy_action(model_family: str):
 # Action Processing
 # =========================================================================================
 
-def create_bridge_adapter_wrapper(action_ensemble_temp=-0.8):
-    """Create a BridgeSimplerAdapter wrapper for action post-processing.
-    
-    This integrates the INT-ACT BridgeSimplerAdapter for consistent action handling.
-    
-    Args:
-        action_ensemble_temp: Temperature for action ensembling 
-                             (negative = more recent actions get more weight)
-        
-    Returns:
-        BridgeSimplerAdapter instance
+class EDRSimplerAdapterRaw(EDRSimplerAdapter):
+    """Google Robot (fractal) adapter for a checkpoint that performs its own
+    normalization internally (e.g. ``HaomingSong/lerobot-pi0-fractal``, whose
+    ``config.json`` sets STATE/ACTION -> ``MEAN_STD`` with the stats baked into the
+    safetensors).
+
+    ``PI0Policy.select_action`` already runs ``normalize_inputs`` on the proprio and
+    ``unnormalize_outputs`` on the predicted actions, so this adapter is *geometry
+    only*: build the raw 8-dim proprio (``EDRSimplerAdapter.preprocess_proprio`` ->
+    ``[xyz(3), quat_xyzw(4), gripper_closedness(1)]``) and convert euler -> axis-angle
+    (inherited ``postprocess``), but never (de)normalize. The four (de)normalization
+    helpers are neutralised so the shared ``SimplerAdapter.preprocess`` /
+    ``postprocess`` code passes values through.
+
+    ``postprocess_gripper`` here is the *stateless* part of the open-pi-zero
+    ``EDRSimplerAdapter.postprocess_gripper`` (``-((a*2)-1)``); the sticky-close state
+    machine is factored into ``StickyGripper`` and applied once per executed env step
+    by the eval loop, because the RL2 loop calls ``postprocess`` many times per step
+    (verifier candidates + logging), which would advance a sticky counter far faster
+    than real env steps.
     """
+
+    def normalize_bound(self, data, *args, **kwargs):
+        return np.asarray(data, dtype=np.float32)
+
+    def normalize_gaussian(self, data, *args, **kwargs):
+        return np.asarray(data, dtype=np.float32)
+
+    def denormalize_bound(self, data, *args, **kwargs):
+        return np.asarray(data, dtype=np.float32)
+
+    def denormalize_gaussian(self, data, *args, **kwargs):
+        return np.asarray(data, dtype=np.float32)
+
+    def postprocess_gripper(self, action: float) -> float:
+        # open-pi-zero EDR convention without sticky: model outputs [0, 1]
+        # (0 close, 1 open); simpler wants -1 open / 1 close.
+        # action = (a * 2) - 1  ->  [-1, 1]; relative_gripper_action = -action
+        return -((float(action) * 2.0) - 1.0)
+
+    def postprocess_gripper_verifier(self, action: float) -> float:
+        # verifier action-history format: 0 for close, 1 for open (model outputs [0, 1])
+        return 0 if float(action) < 0.5 else 1
+
+
+class StickyGripper:
+    """Stateful half of open-pi-zero's ``EDRSimplerAdapter.postprocess_gripper``
+    (RT-1/Octo sticky-close). Once a relative gripper command exceeds 0.5 in
+    magnitude, hold it for ``num_repeat`` control steps (15 -> ~5 s at 3 Hz).
+
+    Applied to the single executed action per env step (Google Robot only);
+    ``reset()`` at the start of every episode. Variable names mirror the source:
+    ``is_on`` = ``sticky_action_is_on``, ``repeat`` = ``gripper_action_repeat``,
+    ``held_action`` = ``sticky_gripper_action``.
+    """
+
+    def __init__(self, num_repeat: int = 15):
+        self.num_repeat = num_repeat
+        self.reset()
+
+    def reset(self):
+        self.is_on = False
+        self.repeat = 0
+        self.held_action = 0.0
+
+    def __call__(self, relative_gripper_action: float) -> float:
+        relative_gripper_action = float(relative_gripper_action)
+        if abs(relative_gripper_action) > 0.5 and self.is_on is False:
+            self.is_on = True
+            self.held_action = relative_gripper_action
+        if self.is_on:
+            self.repeat += 1
+            relative_gripper_action = self.held_action
+        if self.repeat == self.num_repeat:
+            self.is_on = False
+            self.repeat = 0
+            self.held_action = 0.0
+        return relative_gripper_action
+
+
+def create_simpler_adapter_wrapper(embodiment="widowx", action_ensemble_temp=-0.8):
+    """Create the INT-ACT env adapter for the given SimplerEnv embodiment.
+
+    - ``"widowx"``       -> ``BridgeSimplerAdapter`` + ``bridge_statistics.json``
+      (the original Bridge behaviour, unchanged).
+    - ``"google_robot"`` -> ``EDRSimplerAdapterRaw`` + ``fractal_statistics.json``
+      (geometry only; the fractal checkpoint owns normalization).
+
+    Args:
+        embodiment: ``"widowx"`` or ``"google_robot"``.
+        action_ensemble_temp: Temperature for action ensembling
+                             (negative = more recent actions get more weight).
+    """
+    is_google = embodiment == "google_robot"
+    stats_name = "fractal_statistics.json" if is_google else "bridge_statistics.json"
+
     class EnvConfig:
         def __init__(self):
             # Use dynamic path relative to this file
             vla_clip_root = Path(__file__).resolve().parents[2]
-            self.dataset_statistics_path = str(vla_clip_root / "INT-ACT" / "config" / "dataset" / "bridge_statistics.json")
+            self.dataset_statistics_path = str(vla_clip_root / "INT-ACT" / "config" / "dataset" / stats_name)
             self.image_size = (224, 224)
             self.action_normalization_type = "bound"
             self.state_normalization_type = "bound"
-    
+
     class ModelConfig:
         def __init__(self):
             self.chunk_size = 4
             self.action_ensemble_temp = action_ensemble_temp
-    
+
     class Config:
         def __init__(self):
             self.env = EnvConfig()
             self.use_bf16 = False
             self.seed = 42
             self.model_cfg = ModelConfig()
-    
+
     config = Config()
-    adapter = BridgeSimplerAdapter(config)
-    return adapter
+    if is_google:
+        return EDRSimplerAdapterRaw(config=config)
+    return BridgeSimplerAdapter(config)
 
 
-def convert_maniskill_with_bridge_adapter(action, verifier_action=False, action_ensemble_temp=-0.8):
+def create_bridge_adapter_wrapper(action_ensemble_temp=-0.8):
+    """Backwards-compatible alias for the WidowX/Bridge adapter."""
+    return create_simpler_adapter_wrapper("widowx", action_ensemble_temp)
+
+
+def load_pi0_policy_compat(checkpoint):
+    """Load a ``PI0Policy`` from an HF repo id (or local dir), patching a
+    newer-lerobot ``config.json`` so it parses under this repo's vendored lerobot.
+
+    Only ``config.json`` is fetched and patched in a scratch file; the weights still
+    stream from the HF repo via ``PI0Policy.from_pretrained(..., config=...)`` -- no
+    local copy of the checkpoint is needed.
+
+    Patches applied when present (e.g. ``HaomingSong/lerobot-pi0-fractal``):
+      - ``"type": "pi"`` -> ``"pi0"`` (this repo registers PI0Config as "pi0")
+      - rename the image feature key -> ``observation.images.top`` (what the adapters
+        use) and set its shape to ``[3, 224, 224]`` (the adapters feed 224x224)
+      - drop any key that is not a field of this repo's ``PI0Config``. Newer lerobot
+        adds ``image_key_names``, ``paligemma_config``, ``gemma_expert_config`` --
+        the last two only mirror this repo's hardcoded PaliGemma-3B + pi0-expert
+        architecture (verified identical), which the model rebuilds internally, so
+        dropping them changes nothing.
+    """
+    import dataclasses
+    import tempfile
+
+    import draccus
+    from huggingface_hub import hf_hub_download
+
+    from lerobot.common.policies.pi0.configuration_pi0 import PI0Config
+    from lerobot.common.policies.pi0.modeling_pi0 import PI0Policy
+    from lerobot.configs.policies import PreTrainedConfig
+
+    checkpoint = str(checkpoint)
+    if os.path.isdir(checkpoint):
+        cfg_path = os.path.join(checkpoint, "config.json")
+    else:
+        cfg_path = hf_hub_download(repo_id=checkpoint, filename="config.json")
+
+    with open(cfg_path) as f:
+        raw = json.load(f)
+
+    if raw.get("type") == "pi":
+        raw["type"] = "pi0"
+
+    # Build PaliGemma from the hardcoded pi0 config (vocab 257152) instead of
+    # downloading google/paligemma-3b-pt-224, whose vocab your transformers pads to
+    # 257216 -> lm_head shape mismatch. All PaliGemma weights come from the
+    # checkpoint anyway (this is what juexzz/INTACT-pi0-finetune-bridge does).
+    raw["paligemma_pretrained_path"] = None
+
+    feats = raw.get("input_features", {})
+    for k in list(feats):
+        if k.startswith("observation.images.") and k != "observation.images.top":
+            feats["observation.images.top"] = feats.pop(k)
+    if "observation.images.top" in feats:
+        feats["observation.images.top"]["shape"] = [3, 224, 224]
+
+    valid = {f.name for f in dataclasses.fields(PI0Config)} | {"type"}
+    dropped = sorted(set(raw) - valid)
+    raw = {k: v for k, v in raw.items() if k in valid}
+
+    tmp_path = os.path.join(tempfile.mkdtemp(), "config.json")
+    with open(tmp_path, "w") as f:
+        json.dump(raw, f)
+    config = draccus.parse(PreTrainedConfig, tmp_path, args=[])
+    print(f"Loaded patched lerobot config for '{checkpoint}' "
+          f"(type={raw.get('type')}; dropped: {dropped})")
+    return PI0Policy.from_pretrained(checkpoint, config=config)
+
+
+def convert_maniskill_with_bridge_adapter(action, verifier_action=False, action_ensemble_temp=-0.8, embodiment="widowx"):
     """Use BridgeSimplerAdapter for proper action post-processing.
     
     This ensures consistency with INT-ACT's action processing pipeline.
@@ -155,10 +311,10 @@ def convert_maniskill_with_bridge_adapter(action, verifier_action=False, action_
         np.ndarray: Post-processed action
     """
     # Create adapter with unique key based on temperature (singleton pattern)
-    adapter_key = f'_adapter_temp_{action_ensemble_temp}'
+    adapter_key = f'_adapter_{embodiment}_temp_{action_ensemble_temp}'
     if not hasattr(convert_maniskill_with_bridge_adapter, adapter_key):
-        setattr(convert_maniskill_with_bridge_adapter, adapter_key, 
-                create_bridge_adapter_wrapper(action_ensemble_temp))
+        setattr(convert_maniskill_with_bridge_adapter, adapter_key,
+                create_simpler_adapter_wrapper(embodiment, action_ensemble_temp))
     
     adapter = getattr(convert_maniskill_with_bridge_adapter, adapter_key)
     action_batch = action.reshape(1, -1)
@@ -189,16 +345,18 @@ def process_inputs(batch_size, predefined_action_queue, verifier_action=False,
         list: List of action trajectories, one per batch item (batch_size, timesteps, 7)
     """
     processed_future_actions_batch = []
-    
+    embodiment = getattr(cfg, "embodiment", "widowx")
+
     # Process each future timestep
     for i in range(cfg.n_action_steps):
         single_action = predefined_action_queue[i].cpu().numpy()  # (batch_size, 7)
         processed_execution_actions_for_step = []
-        
+
         for batch_idx in range(batch_size):
             sample_1x7 = single_action[batch_idx:batch_idx+1]  # (1, 7)
             processed_execution_1x7 = convert_maniskill_with_bridge_adapter(
-                sample_1x7, verifier_action=verifier_action, action_ensemble_temp=-0.8
+                sample_1x7, verifier_action=verifier_action, action_ensemble_temp=-0.8,
+                embodiment=embodiment,
             )
             processed_execution_1x7 = np.asarray(processed_execution_1x7)
             processed_execution_actions_for_step.append(processed_execution_1x7)

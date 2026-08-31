@@ -31,10 +31,13 @@ warnings.filterwarnings("ignore", message="os.fork().*JAX", category=RuntimeWarn
 # SIMPLER environment imports
 from simpler_benchmark import get_benchmark
 from eval_utils import (
+    StickyGripper,
     convert_maniskill_with_bridge_adapter,
     create_bridge_adapter_wrapper,
+    create_simpler_adapter_wrapper,
     get_simpler_dummy_action,
     get_simpler_env,
+    load_pi0_policy_compat,
     load_rephrases,
     process_inputs,
     process_raw_image_to_jpg,
@@ -93,7 +96,8 @@ class GenerateConfig:
     # CoVer verifier parameters
     use_verifier: bool = True
     use_verifier_always: bool = True
-    critic: str = "cover"                           
+    critic: str = "cover"
+    verifier_checkpoint: str = "bridge_verifier/cover_verifier_bridge.pt"
 
     # Action chunking parameters
     n_action_steps: int = 4
@@ -143,9 +147,21 @@ def eval_simpler(cfg: GenerateConfig) -> None:
     # Set random seed
     set_seed_everywhere(cfg.seed)
 
+    # ---------------------------------------------------------------------------------
+    # Embodiment: "widowx" (Bridge) or "google_robot" (fractal), derived from the task
+    # suite. Everything embodiment-specific below keys off cfg.embodiment.
+    # ---------------------------------------------------------------------------------
+    cfg.embodiment = getattr(get_benchmark(cfg.task_suite_name), "embodiment", "widowx")
+    is_google_robot = cfg.embodiment == "google_robot"
+
+    # Actions executed per predicted chunk (open_pi_zero: bridge 4, fractal 2)
+    eff_act_steps = 2 if is_google_robot else 4
+
     # Set action un-normalization key
     if cfg.model_family == "prismatic":
         cfg.unnorm_key = "bridge_dataset"
+    elif is_google_robot:
+        cfg.unnorm_key = "fractal"          # cosmetic: the fractal checkpoint owns its own normalization
     else:
         cfg.unnorm_key = "bridge_orig"
 
@@ -191,7 +207,12 @@ def eval_simpler(cfg: GenerateConfig) -> None:
 
     # Initialize PI0 policy
     print(f"Loading model from {cfg.pretrained_checkpoint}...")
-    pi0_policy = PI0Policy.from_pretrained(cfg.pretrained_checkpoint)
+    if is_google_robot:
+        # fractal checkpoints (e.g. HaomingSong/lerobot-pi0-fractal) ship a
+        # newer-lerobot config.json; patch it in memory (weights still stream from HF)
+        pi0_policy = load_pi0_policy_compat(cfg.pretrained_checkpoint)
+    else:
+        pi0_policy = PI0Policy.from_pretrained(cfg.pretrained_checkpoint)
     
     if torch.cuda.is_available():
         pi0_policy.to("cuda")
@@ -205,7 +226,9 @@ def eval_simpler(cfg: GenerateConfig) -> None:
         print("Loading ensemble model for similarity scoring...")
         # Use dynamic path relative to the VLA-CLIP root
         vla_clip_root = Path(__file__).resolve().parents[2]
-        ensemble_checkpoint_path = vla_clip_root / "bridge_verifier" / "cover_verifier_bridge.pt"
+        ensemble_checkpoint_path = Path(cfg.verifier_checkpoint)
+        if not ensemble_checkpoint_path.is_absolute():
+            ensemble_checkpoint_path = vla_clip_root / ensemble_checkpoint_path
         ensemble_model = EfficientEnsembleMerged(str(ensemble_checkpoint_path))
         print("Ensemble model loaded successfully!")
     else:
@@ -220,11 +243,18 @@ def eval_simpler(cfg: GenerateConfig) -> None:
     # Load pre-generated rephrases
     preloaded_rephrases = load_rephrases(cfg.task_suite_name)
     
-    # Create adapter for preprocessing
+    # Create adapter for preprocessing (embodiment-specific:
+    # widowx -> BridgeSimplerAdapter, google_robot -> EDRSimplerAdapterRaw)
     action_queue = None
     if not hasattr(pi0_policy, '_preprocess_adapter'):
-        pi0_policy._preprocess_adapter = create_bridge_adapter_wrapper(cfg.action_ensemble_temp)
+        pi0_policy._preprocess_adapter = create_simpler_adapter_wrapper(cfg.embodiment, cfg.action_ensemble_temp)
     preprocess_adapter = pi0_policy._preprocess_adapter
+
+    # Google Robot only: sticky-gripper state machine applied to the single executed
+    # action per env step (reset per episode). EDRSimplerAdapterRaw.postprocess_gripper
+    # is stateless; this keeps the RT-1/Octo sticky-close behaviour without corrupting
+    # state across the many per-candidate postprocess calls in the verifier path.
+    sticky_gripper = StickyGripper() if is_google_robot else None
     
     # Action noise for batch inference
     action_noise_std = 1.0
@@ -239,9 +269,17 @@ def eval_simpler(cfg: GenerateConfig) -> None:
 
         # Initialize environment and task description
         env = get_simpler_env(task, cfg.model_family)
+        if is_google_robot:
+            # drawer_id / model_id are only populated on reset, so do one reset here
+            # before reading the instruction (it is episode-invariant for every
+            # registered google-robot task).
+            env.reset(seed=0, options={"obj_init_options": {"episode_id": 0}})
         original_task_description = env.get_language_instruction()
 
-        curr_task = SAFE_TASK_MAP_DICT.get(original_task_description, cfg.task_suite_name)
+        if is_google_robot:
+            curr_task = task   # e.g. "google_robot_open_top_drawer" -> per-task log/video folders
+        else:
+            curr_task = SAFE_TASK_MAP_DICT.get(original_task_description, cfg.task_suite_name)
         
         # Load QAM model if enabled
         if cfg.composed_samples > 0 or cfg.composed_samples_prefail > 0:
@@ -285,8 +323,16 @@ def eval_simpler(cfg: GenerateConfig) -> None:
             
             if eps_idx % 50 == 0:
                 seeds = itertools.count(1000)
-            
-            obs, reset_info = env.reset(seed=next(seeds))
+
+            if is_google_robot:
+                # Google Robot (fractal): deterministic per-episode reset.
+                obs, reset_info = env.reset(
+                    seed=eps_idx,
+                    options={"obj_init_options": {"episode_id": eps_idx}},
+                )
+                sticky_gripper.reset()
+            else:
+                obs, reset_info = env.reset(seed=next(seeds))
 
             # Initialize episode
             t = 0
@@ -310,8 +356,11 @@ def eval_simpler(cfg: GenerateConfig) -> None:
             cp_raw_data = []
             any_failure_detected = False
             
-            # Set max steps based on task suite
-            if cfg.task_suite_name.startswith("simpler"):
+            # Set max steps
+            if is_google_robot:
+                # fractal tasks have per-task horizons (coke 80, drawer 113, apple 200)
+                max_steps = env.spec.max_episode_steps
+            elif cfg.task_suite_name.startswith("simpler"):
                 max_steps = 150
             else:
                 raise NotImplementedError
@@ -390,7 +439,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                 }
                 
                 # Call select_action every n_action_steps
-                if t % cfg.n_action_steps == 0:
+                if t % eff_act_steps == 0:
                     with torch.no_grad():
                         pi0_policy.reset()
                         output_action_queue, action_embeds = pi0_policy.select_action(observation, noise_std=action_noise_std, return_action_embeds=True)
@@ -511,7 +560,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                 # =========================================================================================
                 # Verifier-Based Action Selection
                 # =========================================================================================
-                if (cfg.use_verifier or composed_actions_queue is not None) and t % cfg.n_action_steps == 0:
+                if (cfg.use_verifier or composed_actions_queue is not None) and t % eff_act_steps == 0:
                     if composed_actions_queue is not None:
                         assert len(composed_actions_queue) == cfg.n_action_steps, \
                             f"Composed action queue length should be {cfg.n_action_steps}, but got {len(composed_actions_queue)}"
@@ -604,7 +653,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     task_description = max_instruction  # Note: Updates task_description with best prompt
                 else:
                     # At inference steps without verifier: set up log variables before popleft
-                    if t % cfg.n_action_steps == 0:
+                    if t % eff_act_steps == 0:
                         global_action_idx = 0   # single sample, always pick index 0
                         num_past = min(len(action_history), 6)
                         predefined_action_queue = list(action_queue)   
@@ -616,7 +665,8 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     single_action = action_queue.popleft().cpu().numpy()
                     action_for_env = single_action[0:1]
                     execute_action = convert_maniskill_with_bridge_adapter(
-                        action_for_env, verifier_action=False, action_ensemble_temp=cfg.action_ensemble_temp
+                        action_for_env, verifier_action=False, action_ensemble_temp=cfg.action_ensemble_temp,
+                        embodiment=cfg.embodiment,
                     )
                     
                     # Store episode data
@@ -627,11 +677,12 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     
                 # Update action history for verifier
                 if cfg.use_verifier:
-                    if t % cfg.n_action_steps == 0:
+                    if t % eff_act_steps == 0:
                         processed_action_for_history = max_action_history[num_past].copy()
                     else:
                         processed_action_for_history = convert_maniskill_with_bridge_adapter(
-                            single_action[0:1], verifier_action=True, action_ensemble_temp=cfg.action_ensemble_temp
+                            single_action[0:1], verifier_action=True, action_ensemble_temp=cfg.action_ensemble_temp,
+                            embodiment=cfg.embodiment,
                         )
                     action_history.append(processed_action_for_history)
 
@@ -659,11 +710,17 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     any_failure_detected = any_failure_detected or is_failure
                     cp_raw_data.append((cumulative_prob, is_failure, t - cfg.num_steps_wait))
 
+                # Google Robot: apply the RT-1/Octo sticky-gripper to the single
+                # executed action (EDRSimplerAdapterRaw.postprocess_gripper is stateless).
+                if is_google_robot:
+                    execute_action = np.asarray(execute_action, dtype=np.float64).copy()
+                    execute_action[-1] = sticky_gripper(execute_action[-1])
+
                 # Execute action in environment
                 obs, reward, done, trunc, info = env.step(execute_action)
 
                 # Log at inference-step boundaries, matching open-pi-zero format
-                if t % cfg.n_action_steps == 0 and cfg.log_safe_training_data:
+                if t % eff_act_steps == 0 and cfg.log_safe_training_data:
                     sampled_actions_np        = torch.stack(predefined_action_queue, dim=1).cpu().float().numpy()
                     sampled_actions_denorm_np = np.stack(
                         [execution_action_histories_list[n][num_past:num_past + cfg.n_action_steps]
@@ -688,11 +745,21 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                         "sampled_action_embeds":  sampled_action_embeds[0:1].clone().cpu(),
                     })  # idx0 = top lang instruction from prev step used for SAFE
 
-                if done and not cfg.log_safe_training_data:
+                if is_google_robot:
+                    # Reference / octo protocol: the episode ends only on timeout
+                    # (trunc), never early on success. Grade success from the env's
+                    # own evaluation at that final step.
+                    if trunc:
+                        done = bool(info.get("success", done))
+                        if done and not cfg.log_safe_training_data:
+                            task_successes += 1
+                            total_successes += 1
+                        break
+                elif done and not cfg.log_safe_training_data:
                     task_successes += 1
                     total_successes += 1
                     break
-                
+
                 t += 1
                 
                 # Update progress bar

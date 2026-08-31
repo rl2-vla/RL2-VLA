@@ -91,6 +91,43 @@ task_map = {
         "widowx_nut_on_wheel_clean",
     ],
 
+    # =========================== Google Robot (fractal) task suites ===========================
+    # Only tasks with a per-episode-deterministic instruction are registered.
+    "simpler_google_robot": [
+        "google_robot_pick_horizontal_coke_can",
+        "google_robot_pick_vertical_coke_can",
+        "google_robot_pick_standing_coke_can",
+        "google_robot_open_top_drawer",
+        "google_robot_open_middle_drawer",
+        "google_robot_open_bottom_drawer",
+        "google_robot_close_top_drawer",
+        "google_robot_close_middle_drawer",
+        "google_robot_close_bottom_drawer",
+        "google_robot_place_apple_in_closed_top_drawer",
+    ],
+    "simpler_google_coke_horizontal": ["google_robot_pick_horizontal_coke_can"],
+    "simpler_google_coke_vertical": ["google_robot_pick_vertical_coke_can"],
+    "simpler_google_coke_standing": ["google_robot_pick_standing_coke_can"],
+    "simpler_google_open_drawer": [
+        "google_robot_open_top_drawer",
+        "google_robot_open_middle_drawer",
+        "google_robot_open_bottom_drawer",
+    ],
+    "simpler_google_close_drawer": [
+        "google_robot_close_top_drawer",
+        "google_robot_close_middle_drawer",
+        "google_robot_close_bottom_drawer",
+    ],
+    "simpler_google_open_top_drawer": ["google_robot_open_top_drawer"],
+    "simpler_google_open_middle_drawer": ["google_robot_open_middle_drawer"],
+    "simpler_google_open_bottom_drawer": ["google_robot_open_bottom_drawer"],
+    "simpler_google_close_top_drawer": ["google_robot_close_top_drawer"],
+    "simpler_google_close_middle_drawer": ["google_robot_close_middle_drawer"],
+    "simpler_google_close_bottom_drawer": ["google_robot_close_bottom_drawer"],
+    "simpler_google_apple_in_drawer": [
+        "google_robot_place_apple_in_closed_top_drawer",
+    ],
+
 }
 
 class Benchmark:
@@ -109,10 +146,17 @@ class Benchmark:
 
 
 class SimplerBenchmark(Benchmark):
+    embodiment = "widowx"
+
     def __init__(self):
         super().__init__()
         self.env_fn = get_simpler_env
         self.state_dim = 7
+
+
+class GoogleRobotSimplerBenchmark(SimplerBenchmark):
+    """SimplerEnv task suites running on the Google Robot (fractal) embodiment."""
+    embodiment = "google_robot"
 
 
 @register_benchmark
@@ -269,4 +313,98 @@ class SIMPLER_WIDOWX_NUT_ON_WHEEL(SimplerBenchmark):
     def __init__(self):
         super().__init__()
         self.name = "simpler_nut_on_wheel"
+        self._make_benchmark()
+
+
+# =============================== Google Robot (fractal) ===============================
+
+@register_benchmark
+class SIMPLER_GOOGLE_ROBOT(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_robot"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_COKE_HORIZONTAL(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_coke_horizontal"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_COKE_VERTICAL(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_coke_vertical"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_COKE_STANDING(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_coke_standing"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_OPEN_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_open_drawer"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_CLOSE_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_close_drawer"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_OPEN_TOP_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_open_top_drawer"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_OPEN_MIDDLE_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_open_middle_drawer"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_OPEN_BOTTOM_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_open_bottom_drawer"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_CLOSE_TOP_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_close_top_drawer"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_CLOSE_MIDDLE_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_close_middle_drawer"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_CLOSE_BOTTOM_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_close_bottom_drawer"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_APPLE_IN_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_apple_in_drawer"
         self._make_benchmark()
