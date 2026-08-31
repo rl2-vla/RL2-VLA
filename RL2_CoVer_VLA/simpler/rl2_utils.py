@@ -56,12 +56,17 @@ SAFE_TASK_MAP_DICT: dict = {
 class QAMInference:
     def __init__(self, checkpoint_path: str):
         """Load QAM model from checkpoint."""
+
+        print(f"\n{'='*80}")
+        print("Loading QAM Model")
+        print(f"{'='*80}")
+        print(f"Loading QAM checkpoint from {checkpoint_path}")
+
         # Load config from flags.json saved alongside the checkpoint
         flags_path = os.path.join(os.path.dirname(checkpoint_path), "flags.json")
         flags = json.load(open(flags_path)) if os.path.exists(flags_path) else {}
         agent_config = flags.get('agent', {})
 
-        print("QAM Seed: ---> ", flags["seed"])
         # Create dummy example batch — only shapes matter for agent initialization.
         # ob_dims and action_dim are stored in flags.json by main.py after create().
         obs_dim = agent_config['ob_dims']   # list, e.g. [1028]
@@ -83,7 +88,7 @@ class QAMInference:
         params = {k: v for k, v in params.items() if "target" not in k}
         print(params.keys())
         param_count = sum(x.size for x in jax.tree_util.tree_leaves(params))
-        print("param count:", param_count)
+        # print("param count:", param_count)
 
         # Restore agent weights from checkpoint file
         self.agent = qam_restore_agent_with_file(agent, checkpoint_path)
@@ -93,6 +98,9 @@ class QAMInference:
         else:
             self.model="slow,fast" if self.agent.config["residual"] else "fast"
         self.networks = tuple(self.agent.network.select(f'actor_{m}') for m in self.model.split(","))
+
+        print("QAM checkpoint loaded successfully")
+        print(f"{'='*80}\n")
 
     def get_denoising_vector(self, observation, noisy_action, i):
         obs = jnp.asarray(observation)
@@ -411,7 +419,7 @@ def check_failure_prediction_lstm(
     """
     # Add current feature to history
     all_features.append(hidden_states_last_token)
-    print(f"[LSTM] Timestep {timestep}: Added feature, history length = {len(all_features)}")
+    # print(f"[LSTM] Timestep {timestep}: Added feature, history length = {len(all_features)}")
 
     with torch.no_grad():
         # LSTM: Stack all features into full sequence (1, T, F)

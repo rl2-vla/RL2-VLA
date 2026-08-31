@@ -74,7 +74,7 @@ class GenerateConfig:
     """Configuration for SIMPLER evaluation with RL2 and CoVer verifier."""
     
     # Model parameters
-    model_family: str = "openvla"
+    model_family: str = "pi0"
     pretrained_checkpoint: Union[str, Path] = "juexzz/INTACT-pi0-finetune-bridge"
     obs_history: int = 1
 
@@ -159,7 +159,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
     os.makedirs(logs_dir, exist_ok=True)
     local_log_filepath = os.path.join(logs_dir, run_id + ".txt")
     log_file = open(local_log_filepath, "w")
-    print(f"Logging to local log file: {local_log_filepath}")
+    print(f"\nLogging to local log file: {local_log_filepath}")
 
     # Write config to top of log file
     print("=" * 80)
@@ -242,14 +242,10 @@ def eval_simpler(cfg: GenerateConfig) -> None:
         original_task_description = env.get_language_instruction()
 
         curr_task = SAFE_TASK_MAP_DICT.get(original_task_description, cfg.task_suite_name)
-        print("original_task_description", original_task_description)
-        print("curr_task", curr_task)
         
         # Load QAM model if enabled
         if cfg.composed_samples > 0 or cfg.composed_samples_prefail > 0:
-            print(f"Loading QAM checkpoint from {cfg.qam_ckpt}")
             qam = QAMInference(checkpoint_path = cfg.qam_ckpt)
-            print("QAM checkpoint loaded successfully")
 
         # Load failure prediction model if enabled
         failure_model = None
@@ -281,7 +277,6 @@ def eval_simpler(cfg: GenerateConfig) -> None:
         for eps_idx in tqdm.tqdm(range(cfg.num_trials_per_task)):
             if matching_task_id is not None and cfg.lang_transform_type == "rephrase":
                 task_description = ([preloaded_rephrases[matching_task_id]["original"]] + preloaded_rephrases[matching_task_id]["ert_rephrases"])[0]
-                print(f"\nUsing rephrased instruction (idx={0}): {task_description}")
             elif cfg.lang_transform_type == "no_transform":
                 task_description = original_task_description
             
@@ -430,14 +425,14 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                         )
 
                         cp_threshold = cp_band[min(t - cfg.num_steps_wait, len(cp_band) - 1)]
-                        if is_failure:
-                            print(f"\033[91m⚠️  FAILURE PREDICTED at t={t}: "
-                                    f"cumulative_prob={cumulative_prob:.4f} >= "
-                                    f"CP_band[{t - cfg.num_steps_wait}]={cp_threshold:.4f}\033[0m")
-                        else:
-                            print(f"\033[92m✅  NO FAILURE PREDICTED at t={t}: "
-                                    f"cumulative_prob={cumulative_prob:.4f} < "
-                                    f"CP_band[{t - cfg.num_steps_wait}]={cp_threshold:.4f}\033[0m")
+                        # if is_failure:
+                        #     print(f"\033[91m⚠️  FAILURE PREDICTED at t={t}: "
+                        #             f"cumulative_prob={cumulative_prob:.4f} >= "
+                        #             f"CP_band[{t - cfg.num_steps_wait}]={cp_threshold:.4f}\033[0m")
+                        # else:
+                        #     print(f"\033[92m✅  NO FAILURE PREDICTED at t={t}: "
+                        #             f"cumulative_prob={cumulative_prob:.4f} < "
+                        #             f"CP_band[{t - cfg.num_steps_wait}]={cp_threshold:.4f}\033[0m")
 
                         # If not failure, stick to prefail config
                         if is_failure:
@@ -562,7 +557,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                         # Map global_action_idx back to the corresponding rephrase instruction
                         max_instruction = task_list[global_action_idx]
 
-                    print("Total samples got: ", len(action_histories_list), f"| policy_batch_inference_size * lang_rephrase_num = {policy_batch_inference_size} * {int(len(action_histories_list) / policy_batch_inference_size)}")
+                    # print("Total samples: ", len(action_histories_list), f"| policy_batch_inference_size * lang_rephrase_num = {policy_batch_inference_size} * {int(len(action_histories_list) / policy_batch_inference_size)}")
                     
                     # Get execution-format actions (not verification-format)
                     execution_action_histories_list = process_inputs(
@@ -702,13 +697,14 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                 
                 # Update progress bar
                 if cfg.use_verifier:
-                    pbar.set_description(f"Episode steps (score: {max_score:.3f})")
+                    pbar.set_description(f"Episode steps (score: {max_score:.3f})", refresh=False)
                 pbar.update(1)
 
             if done and cfg.log_safe_training_data:
                 task_successes += 1
                 total_successes += 1
 
+            pbar.clear()
             pbar.close()
             task_episodes += 1
             total_episodes += 1
@@ -738,9 +734,9 @@ def eval_simpler(cfg: GenerateConfig) -> None:
             if cfg.use_failure_prediction and len(cp_raw_data) > 0:
                 failure_tag = "FAILURE_DETECTED" if any_failure_detected else "NO_FAILURE_DETECTED"
                 cp_mp4_path = video_save_path.replace(".mp4", f"_failure_plots_{failure_tag}.mp4")
-                print(f"Saving failure prediction plots MP4 at path {cp_mp4_path}")
-                log_file.write(f"Saving failure prediction plots MP4 at path {cp_mp4_path}\n")
                 _write_cp_plots_mp4(list(cp_raw_data), cp_mp4_path, cp_band, max_steps)
+                print(f"Saved failure prediction plots MP4 at path {cp_mp4_path}")
+                log_file.write(f"Saved failure prediction plots MP4 at path {cp_mp4_path}\n")
 
             # Save episode data
             if cfg.log_misc_episode_data_openpi:
