@@ -13,6 +13,7 @@ For paper: "RL2-VLA: Adaptive RL Latent Compositional Steering with Test-Time Sc
 
 import itertools
 import os
+import sys
 import time
 from collections import deque
 from dataclasses import dataclass, fields
@@ -130,6 +131,32 @@ class GenerateConfig:
     failure_cp_alpha: float = 0.20
     use_taskwise_cp_band: bool = True
 
+    # VLS Params (inference-time steering via VLM-synthesized rewards).
+    # All default off: use_vls=False must be a strict no-op, reproducing the
+    # existing pipeline bit-identically. See RL2_CoVer_VLA/vls/README.md.
+    use_vls: bool = False
+    vls_guide_scale: float = 80.0          # VLS configs/config.yaml
+    vls_diversity_scale: float = 20.0      # VLS configs/config.yaml
+    vls_start_ratio: float | None = None   # None -> 0.8 (last 20% of denoising)
+    vls_sigmoid_k: float = 25.0            # VLS configs/config.yaml
+    vls_sigmoid_x0: float = 0.75           # VLS configs/config.yaml
+    vls_use_diversity: bool = True
+    vls_use_fkd: bool = True
+    # FKD sub-config (VLS configs/config.yaml `main.fkd`)
+    vls_fkd_potential_type: str = "max"
+    vls_fkd_lmbda: float = 10.0
+    vls_fkd_adaptive_resampling: bool = True
+    vls_fkd_resample_frequency: int = 5
+    vls_guidance_dir: str = ""             # replay cached guidance; "" -> query VLM
+    vls_vlm_query_limit: int = 50          # VLS configs/config.yaml
+    vls_use_vlm_stage_recognition: bool = True
+    vls_schmitt_upper: float = 0.8
+    vls_schmitt_lower: float = 0.6
+    # Visualization (all off by default, mirroring VLS configs/config.yaml:28-29)
+    vls_viz_trajectory: bool = False
+    vls_viz_keypoints: bool = False
+    vls_save_video: bool = False
+
 @draccus.wrap()
 def eval_simpler(cfg: GenerateConfig) -> None:
     """Main evaluation function for SIMPLER benchmark with RL2 and CoVer.
@@ -143,6 +170,28 @@ def eval_simpler(cfg: GenerateConfig) -> None:
 
     # Validate configuration
     assert cfg.pretrained_checkpoint is not None, "cfg.pretrained_checkpoint must not be None!"
+
+    # ------------------------------------------------------------------------------------
+    # VLS isolation. VLS and RL2's CoVer machinery are alternative steering
+    # mechanisms; running both makes any result unattributable. Fail loudly here
+    # (before models load) rather than silently coercing the config.
+    #
+    # Note the *_prefail knobs are what actually govern a run: the rollout uses
+    # them every step and only switches to the post-fail values once a failure
+    # fires, which cannot happen with use_failure_prediction=False.
+    # ------------------------------------------------------------------------------------
+    if cfg.use_vls:
+        assert not cfg.use_failure_prediction, "VLS is non-adaptive: set use_failure_prediction=False"
+        assert not cfg.use_verifier, "VLS executes batch index 0; set use_verifier=False"
+        assert cfg.composed_samples == 0 and cfg.composed_samples_prefail == 0, \
+            "VLS replaces QAM compositional steering; set composed_samples{,_prefail}=0"
+        assert cfg.lang_rephrase_num == 1 and cfg.lang_rephrase_num_prefail == 1, \
+            "VLS uses ONE fixed prompt per episode; set lang_rephrase_num{,_prefail}=1"
+        assert cfg.lang_transform_type == "rephrase", \
+            "VLS evaluates under distribution shift: lang_transform_type='rephrase' with " \
+            "lang_rephrase_num=1 selects the JSON's 'original' field (the OOD base prompt)"
+        # action_samples_prefail is deliberately unconstrained: it IS VLS's
+        # sample_batch_size (1 = shipped default, 5 = run_main.sh, 10 = ablations).
 
     # Set random seed
     set_seed_everywhere(cfg.seed)
@@ -262,12 +311,26 @@ def eval_simpler(cfg: GenerateConfig) -> None:
         task = task_suite.get_task(task_id)
         seeds = itertools.count(1000)
 
-        # Initialize environment and task description
-        env = get_simpler_env(task, cfg.model_family)
+        # Initialize environment and task description.
+        # VLS needs obs_mode="image" for the raw Position/Segmentation textures;
+        # everything else keeps the default so the legacy path is unchanged.
+        env = get_simpler_env(task, cfg.model_family,
+                              obs_mode="image" if cfg.use_vls else None)
         if is_google_robot:
             # drawer_id / model_id are only populated on reset
             env.reset(seed=0, options={"obj_init_options": {"episode_id": 0}})
         original_task_description = env.get_language_instruction()
+
+        # VLS: build the steering stack once per task (loads DINO, VLM clients).
+        vls = None
+        if cfg.use_vls:
+            # The vls package lives in RL2_CoVer_VLA/, the parent of this script's
+            # directory, which is not on sys.path when running from simpler/.
+            _vls_root = str(Path(__file__).resolve().parent.parent)
+            if _vls_root not in sys.path:
+                sys.path.insert(0, _vls_root)
+            from vls.runtime import build_vls
+            vls = build_vls(env, cfg, pi0_policy)
 
         curr_task = SAFE_TASK_MAP_DICT.get(original_task_description, cfg.task_suite_name)
         
@@ -323,6 +386,21 @@ def eval_simpler(cfg: GenerateConfig) -> None:
             else:
                 obs, reset_info = env.reset(seed=next(seeds))
 
+            # VLS: refresh per-episode caches. Must follow every reset -- SAPIEN
+            # reassigns actor ids, so a stale segment->entity map would attach
+            # keypoints to the wrong objects.
+            if vls is not None:
+                vls.adapter.on_reset(obs)
+                vls.reset_episode()
+            # Gripper command of the last executed action; VLS's stage machine
+            # triggers on open/close transitions. None until the first step.
+            _vls_last_gripper = None
+            # Most recent sampled chunk (B,T,D), kept across steps so the video
+            # overlay can draw it on every frame, not just chunk boundaries.
+            _vls_actions = None
+            if vls is not None and vls.recorder is not None:
+                vls.recorder.clear()
+
             # Initialize episode
             t = 0
             replay_images = []
@@ -368,6 +446,23 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     pbar.update(1)
                     continue
 
+                # VLS: keep the adapter's cached obs fresh, and on the first real
+                # step (scene now settled) detect keypoints + load/synthesize
+                # guidance. Objects are still falling during num_steps_wait, so
+                # registering earlier would attach keypoints to mid-fall poses.
+                if vls is not None:
+                    vls.adapter.set_obs(obs)
+                    if not vls.ready and t == cfg.num_steps_wait:
+                        # Per-episode dir mirrors upstream VLS's layout, so the
+                        # VLM audit trail (query_img.png / prompt.txt /
+                        # output_raw.txt / metadata.json / stage*_guidance.txt)
+                        # is inspectable per episode.
+                        vls_episode_dir = os.path.join(
+                            cfg.local_log_dir, run_id, "vls", f"{task_description[:40]}",
+                            f"episode_{eps_idx + 1}",
+                        )
+                        vls.begin_episode(task_description, episode_dir=vls_episode_dir)
+
                 # PREFAIL init (i.e. before failure detection)
                 action_samples = cfg.action_samples_prefail
                 composed_samples = cfg.composed_samples_prefail
@@ -375,7 +470,13 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                 lang_rephrase_num = cfg.lang_rephrase_num_prefail
 
                 # Get raw image from environment
-                raw_img = get_image_from_maniskill2_obs_dict(env, obs)
+                # Under obs_mode="image" the camera dict has "Color" (float32,
+                # 4-channel) instead of the wrapper's "rgb", so the stock
+                # accessor would KeyError. The adapter returns uint8 RGB.
+                if vls is not None:
+                    raw_img = vls.adapter.get_vlm_image()
+                else:
+                    raw_img = get_image_from_maniskill2_obs_dict(env, obs)
                 replay_images.append(raw_img)
                 
                 # Prepare observations for adapter
@@ -531,6 +632,44 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     composed_actions = None
                     composed_actions_queue = None
                     w = None
+
+                    # VLS steering. Same return signature as the compositional
+                    # path, so everything downstream is untouched. The two are
+                    # mutually exclusive (asserted at startup).
+                    if vls is not None and vls.ready:
+                        try:
+                            keypoints, guidance_fns = vls.on_chunk(
+                                gripper_val=_vls_last_gripper
+                            )
+                            if guidance_fns:
+                                from vls.core.pi0_steer import compute_guided_actions
+                                # NOTE: assigned to a VLS-local name, not
+                                # composed_actions_queue. The latter also gates
+                                # the verifier branch below (line ~673), which
+                                # would then call ensemble_model (None here).
+                                # VLS installs its queue directly instead.
+                                _vls_actions, _vls_queue, _ = compute_guided_actions(
+                                    cfg=cfg,
+                                    task_description=task_description,
+                                    processed_obs=processed_obs,
+                                    image_key=image_key,
+                                    pi0_policy=pi0_policy,
+                                    sampler=vls.sampler,
+                                    keypoints=keypoints,
+                                    guidance_fn=guidance_fns,
+                                    action_noise_std=action_noise_std,
+                                    batch_size=policy_batch_inference_size,
+                                    global_step=t,
+                                    current_stage=vls.current_stage,
+                                )
+                                # Install the guided chunk directly, bypassing the
+                                # verifier branch entirely.
+                                if _vls_queue is not None and len(_vls_queue) == cfg.n_action_steps:
+                                    action_queue = _vls_queue
+                        except Exception as e:
+                            # LLM-written guidance can raise anything. Degrade to
+                            # the unguided chunk rather than killing the run.
+                            print(f"[VLS] guided sampling failed at t={t}: {e}")
 
                     if composed_samples > 0:
                         composed_actions, composed_actions_queue, w = compute_composed_actions(
@@ -704,6 +843,35 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     execute_action = np.asarray(execute_action, dtype=np.float64).copy()
                     execute_action[-1] = sticky_gripper(execute_action[-1])
 
+                # VLS: remember the commanded gripper bit for the stage machine's
+                # open/close transition detector (upstream reads the same value
+                # off the executed chunk, main.py:381).
+                if vls is not None:
+                    _vls_last_gripper = float(np.asarray(execute_action).reshape(-1)[-1])
+
+                    # Annotated frame BEFORE stepping, so the drawn trajectory is
+                    # the chunk about to be executed (upstream main.py:627-679).
+                    if vls.recorder is not None:
+                        from vls.viz import render_frame
+                        frame = render_frame(
+                            adapter=vls.adapter,
+                            action_chunk=_vls_actions,
+                            keypoints=vls.keypoints,
+                            mask_ids=vls.tracker.get_mask_ids() if vls.ready else None,
+                            global_step=t,
+                            current_stage=vls.current_stage,
+                            use_guidance=vls.use_guidance and vls.ready,
+                            gripper_val=_vls_last_gripper,
+                            normalized_reward=vls.sampler.get_normalized_reward(),
+                            guide_scale=vls.sampler.get_last_scale(),
+                            sigmoid_k=cfg.vls_sigmoid_k,
+                            sigmoid_x0=cfg.vls_sigmoid_x0,
+                            action_horizon=cfg.n_action_steps,
+                            draw_trajectory=cfg.vls_viz_trajectory,
+                            draw_keypoints=cfg.vls_viz_keypoints,
+                        )
+                        vls.recorder.add_frame(vls.adapter.vlm_camera, frame)
+
                 # Execute action in environment
                 obs, reward, done, trunc, info = env.step(execute_action)
 
@@ -768,6 +936,20 @@ def eval_simpler(cfg: GenerateConfig) -> None:
             episode_data['success'] = done
             episode_data['episode_length'] = t
             action_queue.clear()
+
+            # VLS: annotated rollout video, matching upstream's
+            # episode_N_{success,fail}_<camera>.mp4 naming.
+            if vls is not None and vls.recorder is not None:
+                try:
+                    vls.recorder.save_video(
+                        save_path=os.path.join(
+                            cfg.local_log_dir, run_id, "vls",
+                            f"episode_{eps_idx + 1}_{'success' if done else 'fail'}",
+                        ),
+                        success=bool(done),
+                    )
+                except Exception as e:
+                    print(f"[VLS] video save failed: {e}")
             
             # Save rollout video
             video_save_path = save_rollout_video_openpi(

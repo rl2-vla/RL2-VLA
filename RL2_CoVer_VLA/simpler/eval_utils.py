@@ -68,18 +68,25 @@ def set_seed_everywhere(seed):
 # Environment Setup
 # =========================================================================================
 
-def get_simpler_env(task, model_family):
+def get_simpler_env(task, model_family, obs_mode=None):
     """Initialize and return the SIMPLER environment.
-    
+
     Args:
         task: Task object from SIMPLER benchmark
         model_family: Model family name (e.g., 'openvla')
-        
+        obs_mode: Optional observation mode override. Default None keeps the
+            existing behaviour byte-identical. VLS passes "image" to get the raw
+            {Color, Position, Segmentation} textures plus camera_param, which it
+            needs for the world point cloud; the default "rgbd" wrapper discards
+            the Position x/y channels.
+
     Returns:
         SIMPLER environment instance
     """
-    # env = simpler_env.make(task)
-    env = simpler_env.make(task, renderer_kwargs={"offscreen_only": True})
+    kwargs = {"renderer_kwargs": {"offscreen_only": True}}
+    if obs_mode is not None:
+        kwargs["obs_mode"] = obs_mode
+    env = simpler_env.make(task, **kwargs)
     return env
 
 

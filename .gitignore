@@ -181,3 +181,6 @@ RL2_CoVer_VLA/simpler/bashes/experiments/
 *.mp4
 *.pkl
 .vscode/
+
+# VLS port: generated verification artifacts (PNG panels, PLY point clouds)
+outputs/vls_verify/
