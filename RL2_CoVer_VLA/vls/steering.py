@@ -250,14 +250,21 @@ class VLSSteeringController:
             log.warning(f"No guidance functions for stage {self.current_stage}, disabling")
             self.use_guidance = False
             fns = None
+
         return self.keypoints, fns
 
     def _update_stage(self, gripper_val: Optional[float]):
         """Schmitt trigger on reward + gripper transitions, gating a VLM query."""
         curr_reward = self.sampler.get_normalized_reward()
 
-        # action < 0 = OPEN, action > 0 = CLOSE
-        curr_open = (gripper_val < 0) if gripper_val is not None else None
+        # BridgeSimplerAdapter.postprocess_gripper maps model gripper output
+        # (0=close,1=open) to -1=CLOSE, +1=OPEN for the simpler/ManiSkill env
+        # (INT-ACT/src/experiments/env_adapters/simpler.py:218-224). So on the
+        # EXECUTED action channel this reads: action < 0 = CLOSE, action > 0 = OPEN.
+        # This was previously inverted, which fed the Schmitt trigger below (and
+        # the "gripper opened"/"gripper closed" reason strings sent to the stage
+        # VLM) the wrong event on every real open/close transition.
+        curr_open = (gripper_val > 0) if gripper_val is not None else None
         changed = (self._prev_gripper_open is not None and curr_open is not None
                    and curr_open != self._prev_gripper_open)
 

@@ -73,7 +73,20 @@ def load_functions_from_txt(txt_path, validate=True):
     # This is a simple fix for VLM-generated code that might use numpy
     # Replace common numpy operations with torch equivalents
     import re
-    
+
+    # Strip `import torch` / `import numpy` statements.
+    # A function-local import binds `torch` as a local name for the whole
+    # function scope, which defeats the device patching in
+    # wrap_guidance_function_with_device_fix (it patches __globals__) and
+    # raises UnboundLocalError if any `torch` use precedes the import line.
+    # torch is already provided via gvars_dict below.
+    functions_text = re.sub(
+        r'^[ \t]*import\s+(torch|numpy)(\s+as\s+\w+)?[ \t]*$\n?',
+        '',
+        functions_text,
+        flags=re.MULTILINE,
+    )
+
     # Replace numpy array creation
     functions_text = functions_text.replace('np.array(', 'torch.tensor(')
     functions_text = functions_text.replace('numpy.array(', 'torch.tensor(')
@@ -99,6 +112,8 @@ def load_functions_from_txt(txt_path, validate=True):
     # execute functions
     gvars_dict = {
         'torch': torch,
+        'np': np,
+        'numpy': np,
     }  # external library APIs
     lvars_dict = dict()
     exec_safe(functions_text, gvars=gvars_dict, lvars=lvars_dict)

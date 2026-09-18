@@ -45,7 +45,7 @@ COMPOSED_SAMPLES_PREFAIL=0
 # ==========================================================================
 # VLS hyperparameters (defaults copied verbatim from VLS configs/config.yaml)
 # ==========================================================================
-VLS_GUIDE_SCALE=10.0            # keypoint-gradient strength
+VLS_GUIDE_SCALE=5.0            # keypoint-gradient strength
 VLS_DIVERSITY_SCALE=20.0        # RBF repulsion between particles (needs >1)
 VLS_SIGMOID_K=25.0              # guidance decays as the stage nears its goal
 VLS_SIGMOID_X0=0.75
@@ -74,7 +74,7 @@ VLS_GUIDANCE_DIR=""
 # Step/Stage/Guide/Norm_R/Sig_Str/Scale HUD -- same artifacts as VLS's own
 # run_main.sh. Off by default: it costs time per step.
 VLS_SAVE_VIDEO=True
-VLS_VIZ_TRAJECTORY=False
+VLS_VIZ_TRAJECTORY=True
 VLS_VIZ_KEYPOINTS=True
 
 # Log Directory

@@ -169,6 +169,9 @@ class GuidedSampler:
         self._stage_init_reward = None
         self._last_normalized_reward = 0.0
         self._last_scale = 0.0
+        # {"pi0": (3,), "vls": (3,)} world-frame displacements of the two terms
+        # summed to form the denoising velocity. None until guidance first runs.
+        self._last_terms = None
 
     def reset_stage(self):
         """Clear the per-stage reward baseline (call on stage transitions)."""
@@ -180,7 +183,32 @@ class GuidedSampler:
     def get_last_scale(self) -> float:
         return self._last_scale
 
+    def get_last_terms(self):
+        """World-frame displacements of the two summed velocity terms, or None.
+
+        {"pi0": (3,), "vls": (3,)} -- these add to the net denoising step, so
+        their relative magnitudes are meaningful and must be drawn to a common
+        scale.
+        """
+        return self._last_terms
+
     # -- decoding ---------------------------------------------------------- #
+
+    def _term_to_world(self, term: torch.Tensor) -> np.ndarray:
+        """One velocity term -> the world-frame displacement it contributes.
+
+        `term` is (T,3) in normalized action units. Applying the decoder's own
+        linear part (per-axis scale, then base->world rotation) and summing over
+        the chunk gives the displacement this term adds to the chunk endpoint.
+
+        The affine bias is deliberately NOT applied: it is a constant offset of
+        the decode, not a contribution of either term, and adding it to both
+        would distort their relative magnitudes.
+        """
+        t = term.detach().to(torch.float32).cpu()
+        scale = self.adapter._act_scale.to(t.device, t.dtype)
+        rot = torch.as_tensor(self.adapter._base_rot, dtype=t.dtype)
+        return ((t * scale).sum(dim=0) @ rot.T).numpy()
 
     def _make_decode_fn(self, horizon: int) -> Callable:
         """Map a padded, normalized (B,T,D) sample to (B,T+1,3) world trajectories.
@@ -230,6 +258,11 @@ class GuidedSampler:
             (B, n_action_steps, action_dim) unnormalized actions, same format as
             ``rl2_utils.get_composed_actions``.
         """
+        # Clear the overlay diagnostics for this chunk. Without this they would
+        # persist from the last guided chunk, so the video would keep drawing a
+        # VLS arrow on frames where the stage machine has turned guidance OFF.
+        self._last_terms = None
+
         # One fixed prompt for the whole batch: the batch dimension is particles,
         # not a prompt mixture (upstream broadcasts a single instruction).
         assert len(set(task_list)) == 1, (
@@ -281,6 +314,18 @@ class GuidedSampler:
                 state, prefix_pad_masks, past_key_values, x_t, time.expand(batch_size)
             )
 
+            # pi0's own velocity exists on EVERY denoising step, guided or not,
+            # so record it unconditionally. The guided branch below adds the VLS
+            # term; when guidance is off this stays the only entry and the
+            # overlay draws just the pi0 arrow.
+            #
+            # Scaled by dt: the arrow must show the signed DISPLACEMENT this
+            # term contributes to x_t (x_t = x_t + dt*v_t), not the raw
+            # velocity. dt is negative, so omitting it here would draw the
+            # arrow exactly backwards -- which is what made the VLS arrow
+            # below appear to point away from the target object.
+            self._last_terms = {"pi0": self._term_to_world(dt * v_t[0, :horizon, :3])}
+
             if use_diversity and time > start_time and batch_size > 1:
                 div = compute_diversity_gradient(x_t, decode_fn, horizon)
                 if div is not None:
@@ -312,6 +357,23 @@ class GuidedSampler:
                             f"reward={reward_value:.6f}, init={init}, "
                             f"norm_r={norm_r:.3f}, sig_strength={strength:.3f}, scale={scale:.2f}"
                         )
+
+                    # Overlay diagnostics: the two terms that are SUMMED to form
+                    # the denoising velocity at this step,
+                    #     v = v_pi0 + (-scale * grad)
+                    # kept in the same units so their magnitudes are directly
+                    # comparable (the overlay draws them to a common scale).
+                    # Summed over the chunk horizon and rotated base->world, so
+                    # each arrow is the world-frame displacement that term
+                    # contributes to the chunk endpoint -- which is dt times
+                    # the velocity term (x_t = x_t + dt*v_t), NOT the raw
+                    # term. dt < 0, so this also flips the sign: the actual
+                    # update moves toward the target (since grad points
+                    # toward it and -dt > 0 cancels the "-scale*grad" sign),
+                    # while the undiluted "-scale*grad" points away from it.
+                    self._last_terms["vls"] = self._term_to_world(
+                        dt * (-scale * grad[0, :horizon, :3])
+                    )
 
                     v_t = v_t.clone()
                     v_t[:, :horizon, :3] -= scale * grad[:, :horizon, :3]

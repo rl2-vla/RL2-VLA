@@ -641,31 +641,39 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                             keypoints, guidance_fns = vls.on_chunk(
                                 gripper_val=_vls_last_gripper
                             )
-                            if guidance_fns:
-                                from vls.core.pi0_steer import compute_guided_actions
-                                # NOTE: assigned to a VLS-local name, not
-                                # composed_actions_queue. The latter also gates
-                                # the verifier branch below (line ~673), which
-                                # would then call ensemble_model (None here).
-                                # VLS installs its queue directly instead.
-                                _vls_actions, _vls_queue, _ = compute_guided_actions(
-                                    cfg=cfg,
-                                    task_description=task_description,
-                                    processed_obs=processed_obs,
-                                    image_key=image_key,
-                                    pi0_policy=pi0_policy,
-                                    sampler=vls.sampler,
-                                    keypoints=keypoints,
-                                    guidance_fn=guidance_fns,
-                                    action_noise_std=action_noise_std,
-                                    batch_size=policy_batch_inference_size,
-                                    global_step=t,
-                                    current_stage=vls.current_stage,
-                                )
-                                # Install the guided chunk directly, bypassing the
-                                # verifier branch entirely.
-                                if _vls_queue is not None and len(_vls_queue) == cfg.n_action_steps:
-                                    action_queue = _vls_queue
+                            # Always sample through GuidedSampler, even when the
+                            # stage machine has guidance off. pi0's velocity is
+                            # computed at every flow-matching step regardless, so
+                            # running the same loop keeps that term observable
+                            # (the overlay's pi0 arrow) and keeps the sampling
+                            # path identical across guided/unguided chunks.
+                            # With guidance_fn=None, sample() sets
+                            # use_guidance=False and simply skips the guidance
+                            # branch -- plain flow matching.
+                            from vls.core.pi0_steer import compute_guided_actions
+                            # NOTE: assigned to a VLS-local name, not
+                            # composed_actions_queue. The latter also gates
+                            # the verifier branch below (line ~673), which
+                            # would then call ensemble_model (None here).
+                            # VLS installs its queue directly instead.
+                            _vls_actions, _vls_queue, _ = compute_guided_actions(
+                                cfg=cfg,
+                                task_description=task_description,
+                                processed_obs=processed_obs,
+                                image_key=image_key,
+                                pi0_policy=pi0_policy,
+                                sampler=vls.sampler,
+                                keypoints=keypoints,
+                                guidance_fn=guidance_fns,
+                                action_noise_std=action_noise_std,
+                                batch_size=policy_batch_inference_size,
+                                global_step=t,
+                                current_stage=vls.current_stage,
+                            )
+                            # Install the chunk directly, bypassing the
+                            # verifier branch entirely.
+                            if _vls_queue is not None and len(_vls_queue) == cfg.n_action_steps:
+                                action_queue = _vls_queue
                         except Exception as e:
                             # LLM-written guidance can raise anything. Degrade to
                             # the unguided chunk rather than killing the run.
@@ -855,7 +863,10 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                         from vls.viz import render_frame
                         frame = render_frame(
                             adapter=vls.adapter,
-                            action_chunk=_vls_actions,
+                            # pi0's term is always present; the "vls" key only
+                            # appears on chunks where guidance actually ran, so
+                            # the guidance arrow disappears when Guide:OFF.
+                            terms=vls.sampler.get_last_terms(),
                             keypoints=vls.keypoints,
                             mask_ids=vls.tracker.get_mask_ids() if vls.ready else None,
                             global_step=t,
