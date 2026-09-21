@@ -4,6 +4,7 @@ Resolves repo-relative paths so the scripts run from anywhere, and builds a
 configured SimplerAdapter against a live SIMPLER env.
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -20,17 +21,22 @@ if str(PKG_ROOT) not in sys.path:
 
 
 # Keypoint-detector settings, matching upstream VLS (configs/perception.yaml)
-# except for two values that are inherently scene-scale dependent.
-# Detection is fully local (DINOv3 + k-means) and needs no API key.
+# except for three values (bounds, merge radius, feature extractor) noted below.
+# Detection is fully local (DINO features + k-means) and needs no API key.
+# KEEP IN SYNC with KEYPOINT_DETECTOR_CFG in vls/runtime.py, which is what the
+# eval actually uses -- these scripts should verify the same detector.
 #
 #   bounds_*                 SIMPLER-specific. CALVIN's box
 #                            ([-1,-0.75,-0.1]..[0.1,0.75,1.2]) rejects every
 #                            point here, since SIMPLER's table sits at z ~ 0.87.
-#   min_dist_bt_keypoints    VLS uses 0.05 (5 cm) for CALVIN's larger props.
-#                            SIMPLER's Bridge objects are only ~11 cm across, so
-#                            5 cm merges each object down to a SINGLE keypoint
-#                            (measured: carrot 11.3 cm, plate 10.9 cm max dim).
-#                            0.015 keeps all 5 k-means candidates per object.
+#   min_dist_bt_keypoints    MeanShift merge radius; sets keypoint DENSITY (max 5
+#                            candidates per object). VLS uses 0.05, which
+#                            collapses SIMPLER's 3-20 cm objects to ~1 keypoint
+#                            each (mean/object over 5 scenes/task: 1.35 at 0.05,
+#                            2.1 at 0.03, 2.7 at 0.025, 4.5 at 0.015). 0.025
+#                            targets ~2-3 per object -- an ESTIMATE of upstream's
+#                            density -- and avoids 0.015's 5-deep label pile-up
+#                            on 3 cm cubes.
 #   feature_extractor        VLS uses dinov3_vitb16; we use dinov2_vitb14, which
 #                            matches its capacity (both 768-dim ViT-B features).
 #                            DINOv3 is unreachable here for two INDEPENDENT
@@ -57,7 +63,7 @@ if str(PKG_ROOT) not in sys.path:
 #                            raises rather than let that pass unnoticed.
 KEYPOINT_DETECTOR_CFG = {
     "num_candidates_per_mask": 5,          # VLS default
-    "min_dist_bt_keypoints": 0.015,        # VLS 0.05 -> see note above
+    "min_dist_bt_keypoints": 0.025,        # VLS 0.05 -> see note above
     "max_mask_ratio": 0.5,                 # VLS default
     "feature_extractor": "dinov2_vitb14",  # VLS dinov3_vitb16 -> see note above
     "device": "cuda",
@@ -99,11 +105,16 @@ def make_detector(**overrides):
     return detector
 
 
-def make_adapter(task: str = "widowx_carrot_on_plate", seed: int = 0, settle: int = 12):
+def make_adapter(task: str = None, seed: int = 0, settle: int = 12):
     """Build a SIMPLER env + SimplerAdapter, settled past the reset transient.
+
+    `task` defaults to $VLS_VERIFY_TASK, else widowx_carrot_on_plate, so every
+    verify script can be pointed at another task without editing it, e.g.
+        VLS_VERIFY_TASK=widowx_stack_cube python v3_keypoint_check.py <out_dir>
 
     Returns (env, adapter, obs).
     """
+    task = task or os.environ.get("VLS_VERIFY_TASK", "widowx_carrot_on_plate")
     import simpler_env
     from vls.core.env_adapters import SimplerAdapter
 

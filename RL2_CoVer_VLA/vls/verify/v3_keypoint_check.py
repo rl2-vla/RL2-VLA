@@ -32,15 +32,15 @@ rgb, _, points, seg, names = adapter.get_keypoint_detection_inputs()
 valid = np.linalg.norm(points, axis=-1) > 1e-6
 
 # ---------- V3a: detection with the REAL VLS detector ----------
-# NO API KEY is involved here. KeypointDetector runs a LOCAL DINOv3 model and
-# k-means-clusters its patch features inside each segmentation mask
-# (core/keypoint_detector.py:_cluster_features). OPENAI_API_KEY is only needed
-# later to synthesize guidance functions; GOOGLE_API_KEY only for live stage
-# recognition. Detection works offline.
+# NO API KEY is involved here. KeypointDetector runs a LOCAL DINO model (see
+# make_detector() in _common.py for which one) and k-means-clusters its patch
+# features inside each segmentation mask (core/keypoint_detector.py:
+# _cluster_features). OPENAI_API_KEY is only needed later to synthesize guidance
+# functions; GOOGLE_API_KEY only for live stage recognition. Detection works offline.
 #
-# Settings match upstream VLS (configs/perception.yaml); only the workspace
-# bounds are SIMPLER-specific — CALVIN's [-1,-0.75,-0.1]..[0.1,0.75,1.2] would
-# reject everything here, since SIMPLER's table sits at z~0.87.
+# Settings are KEYPOINT_DETECTOR_CFG in _common.py, which mirrors vls/runtime.py.
+# They match upstream VLS (configs/perception.yaml) except the workspace bounds,
+# the merge radius (keypoint density) and the feature extractor, all noted there.
 kps, projected_img, mask_ids = KEYPOINT_DETECTOR.get_keypoints(rgb, points, seg, names)
 print(f"V3a keypoints: {len(kps)} across {len(set(mask_ids.tolist()))} objects "
       f"(real VLS detector, {KEYPOINT_DETECTOR.feature_extractor_type} features "

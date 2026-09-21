@@ -215,7 +215,7 @@ fig, ax = plt.subplots(1, 2, figsize=(15, 5.5))
 ax[0].imshow(adapter.get_vlm_image())
 tgt_uv = project(target.numpy()[None])[0]
 ax[0].plot(*tgt_uv, "*", color="lime", markersize=24, markeredgecolor="black",
-           markeredgewidth=1.2, label="target keypoint (carrot)", zorder=6)
+           markeredgewidth=1.2, label=f"target ({seg_names[target_seg]})", zorder=6)
 
 first_tr, last_tr = traj_history[0], traj_history[-1]
 for tr, color, lbl in ((first_tr, "#8e44ad", "unguided chunk"),

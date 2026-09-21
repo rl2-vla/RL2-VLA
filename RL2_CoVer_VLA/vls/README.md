@@ -80,6 +80,16 @@ cd RL2_CoVer_VLA/vls/verify
 Visuals land in `RL2-VLA/outputs/vls_verify/` (gitignored): `v1_v2_panel.png`,
 `scene.ply`, `v3_tracking.png`, `v3b_occlusion.png`, `v5_guidance.png`.
 
+The default task is `widowx_carrot_on_plate`. To verify another SIMPLER task, set
+`VLS_VERIFY_TASK` and pass a per-task output directory (every image-producing
+script takes one as its first argument):
+
+```bash
+VLS_VERIFY_TASK=widowx_stack_cube python v3_keypoint_check.py ../../../outputs/vls_verify/stack_cube
+```
+
+`v6_obs_parity_check.py` has its task hardcoded and writes no images.
+
 ### Does VLS change what the policy sees?
 
 No — verified by `v6_obs_parity_check.py`. VLS switches the env to
@@ -131,7 +141,7 @@ Two detector settings also deviate from upstream, both from scene scale:
 | Setting | VLS | Here | Why |
 |---|---|---|---|
 | `bounds_min/max` | CALVIN workspace | `z ∈ [0.80, 1.30]` | SIMPLER's table sits at z ≈ 0.87; CALVIN's box rejects every point |
-| `min_dist_bt_keypoints` | 0.05 | 0.015 | Bridge objects are only ~11 cm across (carrot 11.3, plate 10.9), so a 5 cm merge radius collapses each object to a **single** keypoint |
+| `min_dist_bt_keypoints` | 0.05 | 0.025 | MeanShift merge radius, so it sets keypoint **density** (≤ 5 candidates per object). SIMPLER objects are 3–20 cm, so 0.05 gives ~1 keypoint each. Mean keypoints per object over 5 scenes per task: 1.35 at 0.05, 2.1 at 0.03, **2.7 at 0.025**, 4.5 at 0.015. 0.025 targets ~2–3 per object, an *estimate* of upstream's density (its own code notes ~15–25 keypoints per LIBERO scene). Chosen over 0.015 because there the labels pile up 5-deep on each 3 cm cube and hide it; cubes stay at 1 keypoint for any value ≥ 0.025 |
 
 ### Reading `v5_guidance.png`
 

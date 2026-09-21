@@ -34,11 +34,21 @@ BRIDGE_STATS = REPO_ROOT / "INT-ACT/config/dataset/bridge_statistics.json"
 #                          Same 768-dim ViT-B capacity.
 #   bounds_*               SIMPLER's table sits at z ~ 0.87; CALVIN's box would
 #                          reject every point.
-#   min_dist_bt_keypoints  Bridge objects are ~11 cm across, so VLS's 5 cm merge
-#                          radius collapses each object to a single keypoint.
+#   min_dist_bt_keypoints  MeanShift merge radius: candidates (max 5 per object)
+#                          closer than this are merged, so it sets keypoint
+#                          DENSITY. VLS's 0.05 targets LIBERO/CALVIN-sized props;
+#                          SIMPLER objects are 3-20 cm, and at 0.05 they collapse
+#                          to ~1 keypoint each (measured over 5 scenes/task with
+#                          dinov2: mean/object 1.35 at 0.05, 2.1 at 0.03, 2.7 at
+#                          0.025, 4.5 at 0.015). 0.025 targets ~2-3 per object,
+#                          an ESTIMATE of upstream's density (its own note says
+#                          LIBERO scenes have ~15-25 keypoints). Chosen over
+#                          0.015 because there the labels pile up 5-deep on each
+#                          3 cm cube and hide it; cubes stay at 1 keypoint for
+#                          any value >= 0.025.
 KEYPOINT_DETECTOR_CFG = {
     "num_candidates_per_mask": 5,
-    "min_dist_bt_keypoints": 0.015,
+    "min_dist_bt_keypoints": 0.025,
     "max_mask_ratio": 0.5,
     "feature_extractor": "dinov2_vitb14",
     "device": "cuda",
