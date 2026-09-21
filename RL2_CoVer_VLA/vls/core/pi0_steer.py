@@ -32,6 +32,12 @@ Deviations from upstream, all deliberate (see the port plan):
   does — NOT ``pi05_steer.py``'s ``linspace(1.0, 0.0, ...)``, which
   ``.long()``-truncates to ``[1,0,0,...]`` so ``resample()`` early-returns on
   every step and silently disables FK steering.
+* Steering is gated on ``use_guidance``. Upstream bypasses the guided sampler for
+  guidance-OFF chunks (``pi05_steer.py:124-125``: plain ``predict_action_chunk``).
+  This port reuses the loop for them, so pi0's velocity stays observable for the
+  overlay -- which is only faithful if EVERY steering term (diversity included)
+  is off when guidance is. With ``guidance_fn=None`` the loop is plain flow
+  matching: no diversity, no keypoint gradient, no FKD.
 """
 
 from collections import deque
@@ -326,7 +332,11 @@ class GuidedSampler:
             # below appear to point away from the target object.
             self._last_terms = {"pi0": self._term_to_world(dt * v_t[0, :horizon, :3])}
 
-            if use_diversity and time > start_time and batch_size > 1:
+            # Every steering term is gated on `use_guidance`. Diversity only exists
+            # to spread particles ahead of the reward-guided phase, so with guidance
+            # OFF it must not run either: an OFF chunk is plain flow matching and
+            # particle 0 (the one executed) an ordinary pi0 draw.
+            if use_guidance and use_diversity and time > start_time and batch_size > 1:
                 div = compute_diversity_gradient(x_t, decode_fn, horizon)
                 if div is not None:
                     v_t = v_t.clone()
