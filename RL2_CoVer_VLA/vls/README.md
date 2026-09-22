@@ -217,7 +217,7 @@ shape check while steering the robot confidently in the wrong direction.
 | **V5a2** denormalization bias | zero-action drift == `R·bias·T` | `denormalize_bound` is affine with a **nonzero bias** (~7 mm/step in z). A scale-only decoder silently loses ~2.8 cm per 4-step chunk |
 | **V5b** reward gradient | cosine(finite-diff, autograd) > 0.999 | catches non-differentiable ops in VLM-written reward code. `load_functions_from_txt` validates *shape* but never gradient flow. Compares direction, since the returned gradient is unit-normalized |
 | **V5c** composed update | reward rises **and** distance to target falls | see the sign note below — the single most dangerous silent failure |
-| **V5d** FKD liveness | 11/11 unique timesteps, resample fires, particle 0 is max | regression test against re-introducing upstream pi05's `linspace` wiring, which `.long()`-truncates to `[1,0,0,…]` and silently disables FK steering entirely |
+| **V5d** FKD class | 10/10 unique timesteps, resample fires, terminal reached, particle 0 is max | exercises the FKD *class* on the sampler's grid (one integer per denoising step). It cannot see the sampler's own wiring — that is V7c |
 | **diversity** | works at B>1, returns `None` at B=1 | RBF repulsion self-disables at batch size 1, which is upstream's default |
 
 > **Sign convention — three signs compose.** `autograd.grad` returns
@@ -227,6 +227,22 @@ shape check while steering the robot confidently in the wrong direction.
 > moves *along* `+g` toward higher reward. Never test the gradient's sign in
 > isolation — assert that the composed update raises reward and closes the
 > distance to the target, which is what V5c does.
+
+### What `v7_sampler_gates_check.py` asserts
+
+Control flow of `GuidedSampler.sample()`, with a stub model — **no SIMPLER env
+needed** (`python vls/verify/v7_sampler_gates_check.py`). It drives the real
+sampler, which V5d does not.
+
+| Check | Pass criterion | Why it matters |
+|---|---|---|
+| **V7a** guidance OFF | no diversity / keypoint-gradient / FKD; output bit-identical to a diversity-disabled run | an OFF chunk must be plain flow matching. Upstream bypasses the guided sampler for OFF chunks; here the loop is reused (so the pi0 arrow still draws), which is only faithful if *every* steering term is gated on `use_guidance` |
+| **V7b** guidance ON | diversity on the `time > start_time` steps, keypoint gradient on the rest | pins the two-phase schedule |
+| **V7c** FKD wiring | rewards scored on exactly the steps `{start_idx, start_idx+freq, …, last}`; terminal reached; particle 0 has the max `population_rs` | upstream pi05's `linspace(...).long()` grid collapses to `[1,0,0,…]` (nothing ever resamples), and an `(n+1)`-entry grid puts the terminal index one past the last step, so the final reward sort — which makes index 0, the executed particle, the best — never runs. Both are silent |
+| **V7d** `last_indices` | identity on calls that do not resample | a stale permutation would be re-applied to per-particle state (KV cache, masks) on every non-resampling step |
+| **V7e** state alignment | KV cache / `state` follow the resampled particles at every mid-loop resample | with several resample events per chunk, a particle that is cloned must be denoised under its own conditioning |
+
+Run against the pre-fix `pi0_steer.py`/`fkd_class.py`, V7a, V7c and V7d all fail.
 
 ### Last recorded results (`widowx_carrot_on_plate`, seed 0)
 
@@ -246,6 +262,9 @@ V5c  v -= s*g raises reward and closes distance             PASS
 V5d  11/11 timesteps unique, resample fired 11/11,
      terminal sort puts best particle at index 0            PASS
 ```
+
+> The V5d line above was recorded before the FKD grid changed from 11 entries to
+> 10 (one per denoising step). Re-run `v5_gradient_check.py` to refresh it.
 
 ---
 

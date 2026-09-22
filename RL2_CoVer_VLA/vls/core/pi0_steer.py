@@ -28,10 +28,18 @@ Deviations from upstream, all deliberate (see the port plan):
 * ``start_time`` defaults correctly. Upstream ``pi05_steer.py:191`` reads
   ``start_ratio if start_ratio is None else 0.8``, which is inverted and
   silently ignores an explicit ratio.
-* FKD is wired with integer step indices, as ``diffusion_policy_steer.py:330``
-  does — NOT ``pi05_steer.py``'s ``linspace(1.0, 0.0, ...)``, which
-  ``.long()``-truncates to ``[1,0,0,...]`` so ``resample()`` early-returns on
-  every step and silently disables FK steering.
+* FKD is wired so that it actually runs. Upstream ``pi05_steer.py:321`` builds
+  its time grid as ``linspace(1.0, 0.0, n+1)``, which FKD ``.long()``-truncates
+  to ``[1,0,0,...]``; ``resample()`` then early-returns on every step and FK
+  steering is a silent no-op (0 reward evaluations per chunk). Here the grid is
+  one integer per sampler step, ``arange(n)``, so ``resample(sampling_idx=
+  step_idx)`` indexes it directly and the LAST index is the final denoising
+  step. That is FKD's "terminal" step: it applies the Feynman-Kac correction and
+  sorts particles by reward, so index 0 -- the particle the rollout executes --
+  is the best. (An ``(n+1)``-entry grid puts the terminal index one past the last
+  step the loop takes, so it could never be reached.) The resampling window
+  opens at the first GUIDED step; upstream's ``int(start_time * num_steps)`` is a
+  remaining-step count, not a step index (8 vs 2 for start_time=0.8, n=10).
 * Steering is gated on ``use_guidance``. Upstream bypasses the guided sampler for
   guidance-OFF chunks (``pi05_steer.py:124-125``: plain ``predict_action_chunk``).
   This port reuses the loop for them, so pi0's velocity stays observable for the
@@ -314,6 +322,9 @@ class GuidedSampler:
         time = torch.tensor(1.0, dtype=torch.float32, device=device)
         reward_history = []
         step_idx = 0
+        # FKD diagnostics: steps where it scored rewards, and the subset where it
+        # actually moved particles (the adaptive ESS gate can decline to resample).
+        fkd_scored, fkd_resampled = [], []
 
         while time >= -dt / 2:
             v_t, _ = model.denoise_step(              # NOTE: returns a tuple
@@ -391,15 +402,28 @@ class GuidedSampler:
             x_t = x_t + dt * v_t          # out-of-place: upstream pi0 uses +=
 
             if fkd is not None and time <= start_time:
-                x_t, _ = fkd.resample(sampling_idx=step_idx, latents=x_t, x0_preds=x_t)
-                idx = getattr(fkd, "last_indices", None)
-                if idx is not None:
+                x_t, scored = fkd.resample(sampling_idx=step_idx, latents=x_t, x0_preds=x_t)
+                idx = fkd.last_indices        # identity unless this call resampled
+                if scored is not None:        # None = step outside the interval
+                    fkd_scored.append(step_idx)
+                if not torch.equal(idx, torch.arange(batch_size, device=idx.device)):
+                    fkd_resampled.append(step_idx)
                     past_key_values, prefix_pad_masks, state = _reindex_particles(
                         idx, past_key_values, prefix_pad_masks, state
                     )
 
             time = time + dt
             step_idx += 1
+
+        if fkd is not None:
+            if verbose:
+                log.info(
+                    f"[Step {global_step}] FKD scored at steps {fkd_scored}, resampled at "
+                    f"{fkd_resampled}, terminal={'yes' if fkd.reached_terminal else 'NO'}"
+                )
+            if not fkd.reached_terminal:
+                # The final-step sort is what puts the best particle at index 0.
+                log.warning("FKD never reached its terminal step; particle 0 is not reward-ranked")
 
         # Baseline for the sigmoid comes from the FIRST chunk's final reward.
         if reward_history and self._stage_init_reward is None:
@@ -430,26 +454,44 @@ class GuidedSampler:
                     rewards.append(0.0)
             return torch.tensor(rewards, device=device, dtype=torch.float32)
 
-        # Integer step indices, matching resample(sampling_idx=step_idx). Using
-        # linspace(1.0, 0.0, ...) here (as upstream pi05 does) truncates to
-        # [1,0,0,...] and silently disables resampling.
+        # One integer timestep per sampler step, so resample(sampling_idx=
+        # step_idx) indexes the grid directly and the LAST entry (num_steps - 1)
+        # is the final denoising step. That is FKD's "terminal" sample, where it
+        # applies the Feynman-Kac correction and sorts particles by reward so
+        # index 0 -- the particle the rollout executes -- is the best. Two
+        # ways to get this wrong, both silent:
+        #   * linspace(1.0, 0.0, n+1) (upstream pi05) is .long()-truncated to
+        #     [1,0,0,...], so no step index ever matches and nothing resamples;
+        #   * an (n+1)-entry grid puts the terminal index one past the last step
+        #     the loop takes, so the final sort/correction is never reached.
+        #
+        # The window opens at the first GUIDED step, i.e. the first step whose
+        # time is <= start_time. int(start_time * num_steps) (upstream) is a
+        # count of remaining steps, not a step index: 8 vs 2 for 0.8, n=10.
+        start_idx = num_steps - int(round(start_time * num_steps))
+        start_idx = min(max(start_idx, 0), num_steps - 1)
         fkd = FKD(
             potential_type=fkd_config.get("potential_type", "max"),
             lmbda=fkd_config.get("lmbda", 10.0),
             num_particles=batch_size,
             adaptive_resampling=fkd_config.get("adaptive_resampling", True),
             resample_frequency=fkd_config.get("resample_frequency", 5),
-            resampling_t_start=int(start_time * num_steps),
-            resampling_t_end=num_steps,
-            timesteps=torch.arange(num_steps + 1),
+            resampling_t_start=start_idx,
+            resampling_t_end=num_steps - 1,
+            timesteps=torch.arange(num_steps),
             reward_fn=reward_fn,
             reward_min_value=float("-inf"),
             device=device,
         )
-        if len(fkd.t_to_index) != num_steps + 1:
+        if len(fkd.t_to_index) != num_steps:
             raise RuntimeError(
                 f"FKD timestep collapse: {len(fkd.t_to_index)} unique indices for "
-                f"{num_steps + 1} timesteps — resampling would silently no-op."
+                f"{num_steps} timesteps — resampling would silently no-op."
+            )
+        if int(fkd.resampling_interval[-1]) != num_steps - 1:
+            raise RuntimeError(
+                f"FKD terminal step {num_steps - 1} is not in the resampling interval "
+                f"{fkd.resampling_interval.tolist()} — the final reward sort would never run."
             )
         return fkd
 

@@ -137,7 +137,11 @@ print(f"     v += s*g  reward={u_r:.6f}  final_dist={final_dist(unguided):.4f} m
 print(f"V5c -> {'PASS' if g_r > base_r > u_r and final_dist(guided) < final_dist(sample) else 'FAIL'}"
       f"  (subtracting from v must raise reward and close distance)")
 
-# ---------- V5d: FKD actually resamples ----------
+# ---------- V5d: FKD class resamples and sorts ----------
+# Drives the FKD *class* only, on the grid the sampler uses: one integer per
+# denoising step, so the last index IS the final step the loop takes. It does not
+# see the sampler's own wiring (grid, window, terminal reachability); that is
+# what v7_sampler_gates_check.py exercises through GuidedSampler.sample().
 NP_ = 5
 NSTEP = 10
 rewards = torch.linspace(-1.0, 0.0, NP_)
@@ -149,20 +153,21 @@ def fkd_reward(x0):
 
 fkd = FKD(potential_type="max", lmbda=10.0, num_particles=NP_,
           adaptive_resampling=False, resample_frequency=1,
-          resampling_t_start=0, resampling_t_end=NSTEP,
-          timesteps=torch.arange(NSTEP + 1), reward_fn=fkd_reward,
+          resampling_t_start=0, resampling_t_end=NSTEP - 1,
+          timesteps=torch.arange(NSTEP), reward_fn=fkd_reward,
           reward_min_value=float("-inf"), device="cpu")
-print(f"\nV5d t_to_index: {len(fkd.t_to_index)} unique for {NSTEP+1} timesteps "
-      f"-> {'PASS' if len(fkd.t_to_index) == NSTEP + 1 else 'FAIL'} "
+print(f"\nV5d t_to_index: {len(fkd.t_to_index)} unique for {NSTEP} timesteps "
+      f"-> {'PASS' if len(fkd.t_to_index) == NSTEP else 'FAIL'} "
       f"(pi05's linspace wiring collapses this to 2)")
 
 x = torch.randn(NP_, 4, 7)
 fired = 0
-for s in range(NSTEP + 1):
+for s in range(NSTEP):
     x, _ = fkd.resample(sampling_idx=s, latents=x, x0_preds=x)
     if not torch.equal(fkd.last_indices, torch.arange(NP_)):
         fired += 1
-print(f"V5d resample fired on {fired}/{NSTEP+1} steps -> {'PASS' if fired >= 5 else 'FAIL'}")
+print(f"V5d resample fired on {fired}/{NSTEP} steps -> {'PASS' if fired >= 5 else 'FAIL'}")
+print(f"V5d terminal reached: {fkd.reached_terminal} -> {'PASS' if fkd.reached_terminal else 'FAIL'}")
 print(f"V5d terminal sort: population_rs descending="
       f"{bool(torch.all(fkd.population_rs[:-1] >= fkd.population_rs[1:]))} "
       f"| particle0 is max={bool(fkd.population_rs[0] == fkd.population_rs.max())} "

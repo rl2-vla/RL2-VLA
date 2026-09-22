@@ -222,6 +222,13 @@ class FKD:
         xt = latents
         x0 = x0_preds
 
+        # VLS-PORT: reset on EVERY call. The early returns below (unknown step,
+        # or a step outside the resampling interval) do not resample, so the
+        # caller must see the identity permutation there -- not the indices of
+        # the previous resample, which it would otherwise re-apply to its
+        # per-particle state (KV cache, masks) on each such step.
+        self.last_indices = torch.arange(self.num_particles, device=self.device)
+
         # sampling_idx represents the "scheduler time step t" in the current implementation, e.g., 999->0.
         sampling_t = int(sampling_idx)
 
