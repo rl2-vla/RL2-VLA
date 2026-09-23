@@ -29,6 +29,9 @@ LOCAL_LOG_DIR="./experiments"
 # Set to "IID" or "OOD" to select which task-suite type to evaluate.
 TASK_SUITE_TYPE="IID"
 
+# Embodiment: "widowx" (Bridge) or "google_robot" (fractal).
+EMBODIMENT="widowx"
+
 # ==========================================================================
 # Other config
 # ==========================================================================
@@ -49,14 +52,37 @@ export PRISMATIC_DATA_ROOT=.
 FAILURE_CHECKPOINT_DIR_IID="$REPO_ROOT/third_party/SAFE/scripts/batch_training/logs/SAVED/rl2_pi0_bridge_safe_ckpt_per_task_cp"
 # OOD ckpt has Combined CP bands
 FAILURE_CHECKPOINT_DIR_OOD="$REPO_ROOT/third_party/SAFE/scripts/batch_training/logs/SAVED/rl2_pi0_bridge_safe_ckpt_combined_cp"
+# TODO: Google Robot (fractal) SAFE ckpt + CP alphas JSON not trained yet
+FAILURE_CHECKPOINT_DIR_GOOGLE=""
 
-# QAM checkpoint trained on Bridge-V2
-QAM_CKPT="$REPO_ROOT/third_party/qam/exp/SAVED/rl2-vla-qam-bridge/rl2_vla_qam_bridge_500k.pkl"
+# Pretrained checkpoints per embodiment
+BRIDGE_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"       # INTACT Pi0 finetuned on Bridge-V2
+FRACTAL_CHECKPOINT="HaomingSong/lerobot-pi0-fractal"        # lerobot-format Pi0 finetuned on fractal (Google Robot)
 
-# HF pretrained checkpoint for INTACT Pi0 finetuned on Bridge-V2
-PRETRAINED_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"
+# QAM checkpoints per embodiment (flags.json must sit next to the .pkl)
+BRIDGE_QAM_CKPT="$REPO_ROOT/third_party/qam/exp/SAVED/rl2-vla-qam-bridge/rl2_vla_qam_bridge_500k.pkl"                          # QAM trained on Bridge-V2
+FRACTAL_QAM_CKPT="/home/coder/qam/exp/qam-reproduce/fractal_latents/fractal/qam_20260918_184842/params_900000.pkl"              # QAM trained on fractal (Google Robot)
 
-if [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
+if [[ "$EMBODIMENT" == "google_robot" ]]; then
+    PRETRAINED_CHECKPOINT="$FRACTAL_CHECKPOINT"
+    QAM_CKPT="$FRACTAL_QAM_CKPT"
+    TASK_SUITES=(
+        simpler_google_open_top_drawer
+        simpler_google_open_middle_drawer
+        simpler_google_open_bottom_drawer
+        simpler_google_close_top_drawer
+        simpler_google_close_middle_drawer
+        simpler_google_close_bottom_drawer
+        simpler_google_apple_in_drawer
+        simpler_google_coke_horizontal
+        simpler_google_coke_vertical
+        simpler_google_coke_standing
+    )
+    USE_TASKWISE_CP_BAND=False
+    FAILURE_CHECKPOINT_DIR="$FAILURE_CHECKPOINT_DIR_GOOGLE"
+elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
+    PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
+    QAM_CKPT="$BRIDGE_QAM_CKPT"
     TASK_SUITES=(
         simpler_put_eggplant_in_basket
         simpler_spoon_on_towel
@@ -66,6 +92,8 @@ if [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
     USE_TASKWISE_CP_BAND=True
     FAILURE_CHECKPOINT_DIR="$FAILURE_CHECKPOINT_DIR_IID"
 else
+    PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
+    QAM_CKPT="$BRIDGE_QAM_CKPT"
     TASK_SUITES=(
         simpler_orange_juice_on_plate
         simpler_spoon_on_towel_google

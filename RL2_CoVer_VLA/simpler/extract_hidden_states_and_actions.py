@@ -509,8 +509,8 @@ def process_tfrecords(
 
 if __name__ == "__main__":
     # Fixed settings
-    BASE_DIR = '/mnt/hdd/oxe_ds_new_v2'
-    OUTPUT_BASE_DIR = '/mnt/hdd/oxe_ds_with_action_embeds_pizero_fractal_haomingsong_seed_42_w_ACTIONS'
+    BASE_DIR = '/home/coder/hdd/oxe_ds_new_v2'
+    OUTPUT_BASE_DIR = '/home/coder/hdd/oxe_ds_with_action_embeds_pizero_fractal_haomingsong_seed_42_w_ACTIONS'
 
     # Model settings
     POLICY_BATCH_INFERENCE_SIZE = 1
