@@ -445,21 +445,25 @@ def process_raw_image_to_jpg(image: Union[str, Path, np.ndarray, tf.Tensor],
 # Data Loading
 # =========================================================================================
 
-def load_rephrases(task_suite_name: str):
+def load_rephrases(task_suite_name: str, embodiment: str = "widowx"):
     """Load pre-generated language rephrases for the task suite.
-    
+
     Args:
         task_suite_name: Name of the task suite (e.g., 'simpler_widowx')
-        
+        embodiment: Embodiment the task suite runs on ("widowx" or "google_robot"),
+            derived from the task suite via get_benchmark(). Selects between the
+            Bridge and fractal rephrase JSON files.
+
     Returns:
         dict: Dictionary mapping task descriptions to rephrased instructions
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    json_path = os.path.join(script_dir, 'simpler_rephrased_final_eval_vlm.json')
-    
+    suffix = "fractal" if embodiment == "google_robot" else "bridge"
+    json_path = os.path.join(script_dir, f'simpler_rephrased_final_eval_vlm_{suffix}.json')
+
     with open(json_path, 'r') as f:
         all_rephrases = json.load(f)
-    
+
     return all_rephrases.get("instructions", {})
 
 

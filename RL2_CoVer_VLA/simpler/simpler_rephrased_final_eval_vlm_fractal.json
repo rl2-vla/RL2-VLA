@@ -1,0 +1,173 @@
+{
+  "timestamp": "20260923_000000",
+  "instructions": {
+    "open top drawer": {
+      "original": "open top drawer",
+      "ert_rephrases": [],
+      "rephrases_original": "open top drawer",
+      "random_rephrases": "",
+      "count": 15
+    },
+    "open middle drawer": {
+      "original": "open middle drawer",
+      "ert_rephrases": [
+        "Pull the middle compartment open.",
+        "Slide open the central drawer.",
+        "Unlatch the second box.",
+        "Open the central compartment.",
+        "Pull out the middle drawer.",
+        "Slide the second drawer open.",
+        "Unlatch the middle compartment.",
+        "Open the second box.",
+        "Pull open the central drawer.",
+        "Slide the middle box open.",
+        "Unlatch the central compartment.",
+        "Open the middle box.",
+        "Pull the second drawer open.",
+        "Slide open the middle compartment.",
+        "Unlatch the central box."
+      ],
+      "rephrases_original": "open middle drawer",
+      "random_rephrases": "",
+      "count": 15
+    },
+    "open bottom drawer": {
+      "original": "open bottom drawer",
+      "ert_rephrases": [
+        "Open the lowest drawer.",
+        "Pull the bottom compartment.",
+        "Slide open the lowest drawer.",
+        "Open the bottom compartment of the cabinet.",
+        "Pull out the lowest drawer.",
+        "Slide the bottom drawer open.",
+        "Open the lower compartment.",
+        "Pull the bottom drawer open.",
+        "Slide the lowest compartment open.",
+        "Open the lower drawer of the cabinet.",
+        "Pull open the bottom drawer.",
+        "Open the beige cabinet’s lowest drawer.",
+        "Pull the lowest compartment.",
+        "Slide open the bottom drawer.",
+        "Open the last drawer at the bottom."
+      ],
+      "rephrases_original": "open bottom drawer",
+      "random_rephrases": "",
+      "count": 15
+    },
+    "close top drawer": {
+      "original": "close top drawer",
+      "ert_rephrases": [
+        "Shut the top drawer.",
+        "Close the upper compartment.",
+        "Seal the top drawer.",
+        "Push the upper drawer shut.",
+        "Slide the top drawer in.",
+        "Shut the upper drawer.",
+        "Close the top storage.",
+        "Push the top compartment closed.",
+        "Slide in the upper drawer.",
+        "Seal the upper compartment.",
+        "Close the upper storage.",
+        "Shut the top compartment.",
+        "Push the top unit closed.",
+        "Slide the top unit in.",
+        "Close the upper section."
+      ],
+      "rephrases_original": "close top drawer",
+      "random_rephrases": "",
+      "count": 15
+    },
+    "close middle drawer": {
+      "original": "close middle drawer",
+      "ert_rephrases": [
+        "Shut the middle drawer",
+        "Push the central drawer closed",
+        "Seal the middle compartment",
+        "Close the central drawer",
+        "Slide the middle unit shut",
+        "Push the middle drawer in",
+        "Shut the central compartment",
+        "Seal the central unit",
+        "Close the drawer in the middle",
+        "Push the central compartment closed",
+        "Slide the middle compartment in",
+        "Shut the drawer in the center",
+        "Close the central compartment",
+        "Seal the drawer in the middle",
+        "Push the drawer in the center shut"
+      ],
+      "rephrases_original": "close middle drawer",
+      "random_rephrases": "",
+      "count": 15
+    },
+    "close bottom drawer": {
+      "original": "close bottom drawer",
+      "ert_rephrases": [
+        "Shut the bottom drawer.",
+        "Close the lowest compartment.",
+        "Push in the bottom cabinet.",
+        "Seal the lowest drawer.",
+        "Shut the lower compartment.",
+        "Push in the lower drawer.",
+        "Close the bottom compartment.",
+        "Seal the lower cabinet.",
+        "Shut the lowest cabinet.",
+        "Push in the lowest compartment.",
+        "Seal the bottom drawer.",
+        "Close the lower drawer.",
+        "Shut the lower cabinet.",
+        "Push in the bottom compartment.",
+        "Seal the lowest compartment."
+      ],
+      "rephrases_original": "close bottom drawer",
+      "random_rephrases": "",
+      "count": 15
+    },
+    "apple_in_top_drawer": {
+      "original": "open top drawer and place apple into top drawer",
+      "ert_rephrases": [
+        "Pull the top drawer open and put the apple inside.",
+        "Open the upper drawer and insert the apple.",
+        "Set the apple in the first drawer after opening it.",
+        "Place the fruit inside the top drawer once opened.",
+        "Open the top drawer and set the red apple in it.",
+        "Pull open the first drawer and put the apple within.",
+        "Open the top drawer and insert the fruit.",
+        "Put the apple in the top drawer after pulling it open.",
+        "Place the red fruit inside the upper drawer.",
+        "Open the top drawer and drop the apple inside.",
+        "Pull the upper drawer and place the apple in.",
+        "Open the first drawer and put the fruit inside.",
+        "Pull the top drawer open and insert the apple.",
+        "Open the top drawer and set the fruit inside.",
+        "Pull the upper drawer open and place the apple within."
+      ],
+      "rephrases_original": "open top drawer and place apple into top drawer",
+      "random_rephrases": "",
+      "count": 15
+    },
+    "pick coke can": {
+      "original": "pick coke can",
+      "ert_rephrases": [
+        "Grab the red soda can.",
+        "Take the red drink can.",
+        "Lift the red beverage can.",
+        "Collect the scarlet coke can.",
+        "Seize the crimson drink can.",
+        "Grab the bright red soda can.",
+        "Take the scarlet beverage can.",
+        "Lift the crimson coke can.",
+        "Pick up the red drink can.",
+        "Pick up the bright red beverage can.",
+        "Collect the red coke can.",
+        "Grab the crimson soda can.",
+        "Lift the scarlet drink can.",
+        "Take the bright red coke can.",
+        "Seize the red beverage can."
+      ],
+      "rephrases_original": "pick coke can",
+      "random_rephrases": "",
+      "count": 15
+    }
+  }
+}

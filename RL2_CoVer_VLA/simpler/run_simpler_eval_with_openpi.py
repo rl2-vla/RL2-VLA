@@ -239,7 +239,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
     log_file.write(f"Task suite: {cfg.task_suite_name}\n")
     
     # Load pre-generated rephrases
-    preloaded_rephrases = load_rephrases(cfg.task_suite_name)
+    preloaded_rephrases = load_rephrases(cfg.task_suite_name, cfg.embodiment)
     
     # Create adapter for preprocessing (embodiment-specific:
     # widowx -> BridgeSimplerAdapter, google_robot -> EDRSimplerAdapterRaw)
