@@ -50,9 +50,14 @@ FRACTAL_CHECKPOINT="HaomingSong/lerobot-pi0-fractal"        # lerobot-format Pi0
 BRIDGE_QAM_CKPT="$REPO_ROOT/third_party/qam/exp/SAVED/rl2-vla-qam-bridge/rl2_vla_qam_bridge_500k.pkl"                          # QAM trained on Bridge-V2
 FRACTAL_QAM_CKPT="/home/coder/qam/exp/qam-reproduce/fractal_latents/fractal/qam_20260918_184842/params_900000.pkl"              # QAM trained on fractal (Google Robot)
 
+# CoVer verifier checkpoints per embodiment
+BRIDGE_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_bridge.pt"                                                     # CoVer verifier trained on Bridge-V2
+FRACTAL_VERIFIER_CKPT="/home/coder/hdd/cover_verifier_training/fractal/checkpoints/converged/fractal_siglip_resume_step_63360_converged.pt"    # CoVer verifier trained on fractal (Google Robot)
+
 if [[ "$EMBODIMENT" == "google_robot" ]]; then
     PRETRAINED_CHECKPOINT="$FRACTAL_CHECKPOINT"
     QAM_CKPT="$FRACTAL_QAM_CKPT"
+    VERIFIER_CKPT="$FRACTAL_VERIFIER_CKPT"
     TASK_SUITES=(
         simpler_google_open_top_drawer
         simpler_google_open_middle_drawer
@@ -68,6 +73,7 @@ if [[ "$EMBODIMENT" == "google_robot" ]]; then
 elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
     PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
     QAM_CKPT="$BRIDGE_QAM_CKPT"
+    VERIFIER_CKPT="$BRIDGE_VERIFIER_CKPT"
     TASK_SUITES=(
         simpler_put_eggplant_in_basket
         simpler_spoon_on_towel
@@ -77,6 +83,7 @@ elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
 else
     PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
     QAM_CKPT="$BRIDGE_QAM_CKPT"
+    VERIFIER_CKPT="$BRIDGE_VERIFIER_CKPT"
     TASK_SUITES=(
         simpler_orange_juice_on_plate
         simpler_spoon_on_towel_google
@@ -100,6 +107,7 @@ for seed in "${SEEDS[@]}"; do
             --action_samples_prefail "$ACTION_SAMPLES_PREFAIL" \
             --composed_samples_prefail "$COMPOSED_SAMPLES_PREFAIL" \
             --use_verifier True \
+            --verifier_checkpoint "$VERIFIER_CKPT" \
             --qam_ckpt "$QAM_CKPT" \
             --critic cover \
             --seed "$seed" \
