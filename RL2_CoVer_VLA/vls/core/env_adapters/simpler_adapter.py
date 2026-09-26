@@ -5,9 +5,16 @@ Implements the upstream ``BaseEnvAdapter`` contract against SIMPLER, so the
 ported VLS components (keypoint detector/tracker, guided samplers, viz) run
 unchanged.
 
-Scope: WidowX / Bridge only. The Google-Robot checkpoint uses MEAN_STD action
-normalization and a different control mode, so its trajectory decoder differs
-and must be re-validated before enabling.
+Scope: WidowX / Bridge and Google Robot / fractal, via
+``env_config["embodiment"]`` (default ``"widowx"``).
+
+Google Robot's checkpoint normalizes actions with MEAN_STD *inside*
+``PI0Policy.unnormalize_outputs`` (WidowX's is IDENTITY there; its real
+denormalize happens externally in ``BridgeSimplerAdapter.postprocess``). Since
+VLS steers the sample before ``unnormalize_outputs`` runs (a ``@torch.no_grad``
+call it can't backprop through), ``_probe_action_affine`` measures the affine
+across BOTH stages in rollout order, which is correct for either checkpoint
+without embodiment-specific math -- pass the live ``policy`` for this.
 
 Key SIMPLER facts this relies on (all verified against the vendored source):
 
@@ -52,8 +59,31 @@ log = SteerLogger("SimplerAdapter")
 # (envs/custom_scenes/base_env.py:355).
 _NON_OBJECT_ACTOR_NAMES = frozenset({"ground", "goal_site", "", "arena"})
 
+# robot_uid substring expected per embodiment, and the matching default VLM
+# camera (simpler_env/utils/env/observation_utils.py:4-9).
+_ROBOT_UID_SUBSTR = {"widowx": "widowx", "google_robot": "google_robot"}
+_DEFAULT_CAMERA = {"widowx": "3rd_view_camera", "google_robot": "overhead_camera"}
 
-def _probe_action_affine(action_stats=None):
+# Checkpoint whose baked unnormalize_outputs stats fetch_policy_action_stats()
+# reads for the no-policy (verify script) fallback.
+GOOGLE_ROBOT_DEFAULT_CHECKPOINT = "HaomingSong/lerobot-pi0-fractal"
+
+
+def fetch_policy_action_stats(checkpoint: str) -> Dict[str, np.ndarray]:
+    """Read a LeRobot policy's baked action mean/std off its checkpoint file,
+    without instantiating the model. Stand-in for a live ``policy`` in
+    ``_probe_action_affine``'s fallback path (e.g. verify scripts)."""
+    from huggingface_hub import hf_hub_download
+    from safetensors import safe_open
+
+    path = hf_hub_download(checkpoint, "model.safetensors")
+    with safe_open(path, framework="pt") as f:
+        mean = f.get_tensor("unnormalize_outputs.buffer_action.mean").numpy()
+        std = f.get_tensor("unnormalize_outputs.buffer_action.std").numpy()
+    return {"mean": mean, "std": std}
+
+
+def _probe_action_affine(action_stats=None, embodiment="widowx", policy=None):
     """Measure the rollout's own normalized-action -> metres map for xyz.
 
     Calls `convert_maniskill_with_bridge_adapter` (the exact function
@@ -67,6 +97,11 @@ def _probe_action_affine(action_stats=None):
     keeps the differentiable decoder bound to the real execution path instead of
     duplicating its arithmetic. Falls back to `action_stats` only if the rollout
     helper cannot be imported (e.g. running the adapter standalone).
+
+    `policy`, when given, is applied (via its real, no_grad `unnormalize_outputs`)
+    before `_conv`, so the probe walks the full x_t -> metres chain in rollout
+    order. This is a no-op for WidowX (IDENTITY mapping) and the real MEAN_STD
+    denormalize for Google Robot -- see the module docstring.
     """
     try:
         from eval_utils import convert_maniskill_with_bridge_adapter as _conv
@@ -75,8 +110,13 @@ def _probe_action_affine(action_stats=None):
             a = np.zeros(7, dtype=np.float32)
             a[:3] = v
             a[6] = -1.0                      # gripper open; untouched by xyz
+            if policy is not None:
+                device = next(policy.parameters()).device
+                with torch.no_grad():
+                    a_t = torch.as_tensor(a, dtype=torch.float32, device=device).unsqueeze(0)
+                    a = policy.unnormalize_outputs({"action": a_t})["action"][0].cpu().numpy()
             return np.asarray(_conv(a, verifier_action=False,
-                                    embodiment="widowx"), dtype=np.float64)[:3]
+                                    embodiment=embodiment), dtype=np.float64)[:3]
 
         f0, fp, fm = f(0.0), f(1.0), f(-1.0)
         scale = (fp - fm) / 2.0
@@ -88,10 +128,15 @@ def _probe_action_affine(action_stats=None):
             )
         return scale, bias
     except ImportError:
+        if action_stats and "mean" in action_stats and "std" in action_stats:
+            mean = np.asarray(action_stats["mean"], dtype=np.float64)
+            std = np.asarray(action_stats["std"], dtype=np.float64)
+            return std[:3], mean[:3]
         if not action_stats or "p01" not in action_stats or "p99" not in action_stats:
             raise ValueError(
                 "SimplerAdapter needs either RL2's eval_utils on sys.path or "
-                "action_stats={'p01':..., 'p99':...}."
+                "action_stats={'p01':...,'p99':...} (bound) or "
+                "{'mean':...,'std':...} (mean_std)."
             )
         p01 = np.asarray(action_stats["p01"], dtype=np.float64)
         p99 = np.asarray(action_stats["p99"], dtype=np.float64)
@@ -107,19 +152,25 @@ class SimplerAdapter(BaseEnvAdapter):
         env_config: dict,
         device: str = "cuda",
         action_stats: Optional[Dict[str, np.ndarray]] = None,
+        embodiment: Optional[str] = None,
+        policy=None,
     ):
         super().__init__(env, env_config, device)
 
+        embodiment = embodiment or env_config.get("embodiment", "widowx")
+        if embodiment not in _ROBOT_UID_SUBSTR:
+            raise ValueError(f"Unknown embodiment {embodiment!r}. Supported: "
+                              f"{sorted(_ROBOT_UID_SUBSTR)}.")
+        self.embodiment = embodiment
+
         uid = getattr(self.unwrapped_env, "robot_uid", "")
-        if "widowx" not in uid:
+        if _ROBOT_UID_SUBSTR[embodiment] not in uid:
             raise NotImplementedError(
-                f"SimplerAdapter currently supports WidowX/Bridge only, got robot_uid={uid!r}. "
-                "Google-Robot uses MEAN_STD action normalization and a different control "
-                "mode; re-derive and re-validate the trajectory decoder before enabling."
+                f"SimplerAdapter configured for embodiment={embodiment!r} but "
+                f"got robot_uid={uid!r}."
             )
 
-        # Mirrors simpler_env/utils/env/observation_utils.py:4-9.
-        self.vlm_camera = env_config.get("vlm_camera") or "3rd_view_camera"
+        self.vlm_camera = env_config.get("vlm_camera") or _DEFAULT_CAMERA[embodiment]
 
         # Translation constants for the differentiable decoder.
         #
@@ -136,7 +187,7 @@ class SimplerAdapter(BaseEnvAdapter):
         #
         # The bias is NOT negligible: z is ~+7 mm/step, i.e. ~2.8 cm over a
         # 4-step chunk, so a scale-only decoder drifts systematically upward.
-        scale, bias = _probe_action_affine(action_stats)
+        scale, bias = _probe_action_affine(action_stats, embodiment=embodiment, policy=policy)
         self._act_scale = torch.as_tensor(scale, dtype=torch.float32)
         self._act_bias = torch.as_tensor(bias, dtype=torch.float32)
 

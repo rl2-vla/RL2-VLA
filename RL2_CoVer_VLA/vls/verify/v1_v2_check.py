@@ -15,9 +15,9 @@ H, W = depth.shape
 print(f"rgb {rgb.shape} {rgb.dtype} | depth {depth.shape} | points {points.shape} | seg {seg.shape}")
 
 # ---------- V1d: non-mutation ----------
-raw_before = np.array(obs["image"]["3rd_view_camera"]["Position"], copy=True)
+raw_before = np.array(obs["image"][adapter.vlm_camera]["Position"], copy=True)
 _, _, points2, _, _ = adapter.get_keypoint_detection_inputs()
-raw_after = np.asarray(obs["image"]["3rd_view_camera"]["Position"])
+raw_after = np.asarray(obs["image"][adapter.vlm_camera]["Position"])
 print(f"V1d non-mutation: Position unchanged={np.array_equal(raw_before, raw_after)} | "
       f"clouds identical={np.array_equal(points, points2)}")
 
@@ -50,7 +50,7 @@ u, v = int(round(p2[0] / p2[2])), int(round(p2[1] / p2[2]))
 
 links = {l.id: l for l in env.unwrapped.agent.robot.get_links()}
 finger_ids = [i for i, l in links.items() if "finger" in l.name]
-actor_seg_raw = obs["image"]["3rd_view_camera"]["Segmentation"][..., 1]
+actor_seg_raw = obs["image"][adapter.vlm_camera]["Segmentation"][..., 1]
 fmask = np.isin(actor_seg_raw, finger_ids) & valid
 if fmask.sum() > 20:
     fd = np.linalg.norm(points[fmask] - tcp, axis=1)
@@ -85,7 +85,7 @@ if len(band) > 200:
 print(f"\nV2 segments ({len(names)-1} objects): "
       + ", ".join(f"{k}:{v}" for k, v in sorted(names.items()) if k != 0))
 robot_ids = {l.id for l in env.unwrapped.agent.robot.get_links()}
-actor_seg = obs["image"]["3rd_view_camera"]["Segmentation"][..., 1]
+actor_seg = obs["image"][adapter.vlm_camera]["Segmentation"][..., 1]
 leak = set(np.unique(actor_seg[seg > 0])) & robot_ids
 print(f"V2b robot-link leakage into labelled segments: {leak or 'none'} "
       f"-> {'PASS' if not leak else 'FAIL'}")

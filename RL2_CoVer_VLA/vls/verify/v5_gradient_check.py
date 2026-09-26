@@ -70,7 +70,7 @@ print(f"     |drift|={np.linalg.norm(drift)*100:.2f} cm — a scale-only decoder
 # ---------- V5b/c: reward gradient + descent direction ----------
 # Stand-in for a VLM-written reward: negative squared distance to a keypoint,
 # matching the shape of real guidance (see VLS stage1_guidance.txt).
-seg_names = adapter.process_segmentation(obs["image"]["3rd_view_camera"]["Segmentation"])[2]
+seg_names = adapter.process_segmentation(obs["image"][adapter.vlm_camera]["Segmentation"])[2]
 target_seg = sorted(k for k in seg_names if k != 0)[0]
 target = torch.as_tensor(adapter.get_object_pose_by_segment(target_seg).position, dtype=torch.float32)
 keypoints = target.unsqueeze(0)

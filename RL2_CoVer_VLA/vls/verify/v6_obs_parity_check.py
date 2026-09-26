@@ -14,19 +14,25 @@ discards.
 Usage:
     python vls/verify/v6_obs_parity_check.py
 """
+import os
 import sys
 
 import numpy as np
 import simpler_env
 
-from _common import PKG_ROOT, action_stats  # noqa: E402
+from _common import PKG_ROOT, _resolve_embodiment, action_stats  # noqa: E402
 
 sys.path.insert(0, str(PKG_ROOT / "SimplerEnv"))
 from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_obs_dict  # noqa: E402
 
 from vls.core.env_adapters import SimplerAdapter  # noqa: E402
 
-TASK, SEED, SETTLE = "widowx_carrot_on_plate", 0, 12
+# VLS_VERIFY_TASK is the same flag _common.make_adapter() reads, so this script
+# switches embodiment the same way the others do, e.g.
+#     VLS_VERIFY_TASK=google_robot_open_top_drawer python v6_obs_parity_check.py
+TASK = os.environ.get("VLS_VERIFY_TASK", "widowx_carrot_on_plate")
+SEED, SETTLE = 0, 12
+EMBODIMENT = _resolve_embodiment(TASK)
 
 
 def rollout(obs_mode):
@@ -46,8 +52,8 @@ img_a = get_image_from_maniskill2_obs_dict(env_a, obs_a)
 
 # --- VLS path: obs_mode="image", adapter accessor ---
 env_b, obs_b = rollout("image")
-adapter = SimplerAdapter(env_b, {"vlm_camera": "3rd_view_camera"},
-                         action_stats=action_stats())
+adapter = SimplerAdapter(env_b, {}, action_stats=action_stats(EMBODIMENT),
+                         embodiment=EMBODIMENT)
 adapter.on_reset(obs_b)
 adapter.set_obs(obs_b)
 img_b = adapter.get_vlm_image()

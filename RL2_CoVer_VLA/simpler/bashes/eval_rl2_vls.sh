@@ -83,6 +83,9 @@ LOCAL_LOG_DIR="./experiments"
 # Set to "IID" or "OOD" to select which task-suite type to evaluate.
 TASK_SUITE_TYPE="IID"
 
+# Embodiment: "widowx" (Bridge) or "google_robot" (fractal).
+EMBODIMENT="widowx"
+
 # ==========================================================================
 # Other config
 # ==========================================================================
@@ -99,10 +102,26 @@ INFERENCE_ROOT="$REPO_ROOT/CoVer_VLA"
 export PYTHONPATH="$REPO_ROOT:$INFERENCE_ROOT:$PYTHONPATH"
 export PRISMATIC_DATA_ROOT=.
 
-# HF pretrained checkpoint for INTACT Pi0 finetuned on Bridge-V2
-PRETRAINED_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"
+# Pretrained checkpoints per embodiment
+BRIDGE_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"       # INTACT Pi0 finetuned on Bridge-V2
+FRACTAL_CHECKPOINT="HaomingSong/lerobot-pi0-fractal"        # lerobot-format Pi0 finetuned on fractal (Google Robot)
 
-if [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
+if [[ "$EMBODIMENT" == "google_robot" ]]; then
+    PRETRAINED_CHECKPOINT="$FRACTAL_CHECKPOINT"
+    TASK_SUITES=(
+        simpler_google_open_top_drawer
+        simpler_google_open_middle_drawer
+        simpler_google_open_bottom_drawer
+        simpler_google_close_top_drawer
+        simpler_google_close_middle_drawer
+        simpler_google_close_bottom_drawer
+        simpler_google_apple_in_drawer
+        simpler_google_coke_horizontal
+        simpler_google_coke_vertical
+        simpler_google_coke_standing
+    )
+elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
+    PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
     TASK_SUITES=(
         simpler_put_eggplant_in_basket
         simpler_spoon_on_towel
@@ -110,6 +129,7 @@ if [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
         simpler_carrot_on_plate
     )
 else
+    PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
     TASK_SUITES=(
         simpler_orange_juice_on_plate
         simpler_spoon_on_towel_google

@@ -40,16 +40,28 @@ plt.colorbar(im, ax=ax[0, 1], fraction=0.035)
 # segmentation: background grey, each object a distinct colour
 segvis = np.zeros((H, W, 3))
 segvis[seg == 0] = [0.85, 0.85, 0.85]
-palette = [[0.90, 0.25, 0.20], [0.20, 0.45, 0.90], [0.20, 0.75, 0.35]]
+# 6 colours: covers WidowX's usual 1-3 objects and Google Robot's cabinet
+# scenes (body + up to 3 drawers, + apple = 5 for apple-in-drawer).
+palette = [
+    [0.90, 0.25, 0.20], [0.20, 0.45, 0.90], [0.20, 0.75, 0.35],
+    [0.95, 0.65, 0.10], [0.55, 0.30, 0.75], [0.10, 0.70, 0.70],
+]
 for i, sidx in enumerate(sorted(k for k in names if k != 0)):
     segvis[seg == sidx] = palette[i % len(palette)]
 # overlay robot pixels in dark grey to show they are EXCLUDED from labels
 robot_ids = {l.id for l in env.unwrapped.agent.robot.get_links()}
-robot_mask = np.isin(obs["image"]["3rd_view_camera"]["Segmentation"][..., 1], list(robot_ids))
+robot_mask = np.isin(obs["image"][adapter.vlm_camera]["Segmentation"][..., 1], list(robot_ids))
 segvis[robot_mask & (seg == 0)] = [0.35, 0.35, 0.35]
 ax[1, 0].imshow(segvis)
-lbl = "  |  ".join(f"{k}={names[k].split('_')[1] if '_' in names[k] else names[k]}"
-                   for k in sorted(names) if k != 0)
+# Strip WidowX's literal "bridge_" prefix specifically (-> "carrot", "plate"),
+# rather than "drop whichever token comes first": that generic rule also ate
+# Google Robot's FIRST token, which is the informative one ("top_drawer" /
+# "middle_drawer" / "bottom_drawer" all collapsed to "drawer").
+def _short_name(name):
+    return name[len("bridge_"):].split("_")[0] if name.startswith("bridge_") else name
+
+
+lbl = "  |  ".join(f"{k}={_short_name(names[k])}" for k in sorted(names) if k != 0)
 ax[1, 0].set_title(f"Segmentation (actor-level)\n{lbl}   [dark grey = robot, excluded]", fontsize=10)
 
 # world-Z heatmap proves the plane fit / axis convention

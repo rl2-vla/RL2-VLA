@@ -19,6 +19,19 @@ DEFAULT_OUT = REPO_ROOT / "outputs/vls_verify"
 if str(PKG_ROOT) not in sys.path:
     sys.path.insert(0, str(PKG_ROOT))
 
+from vls.core.env_adapters.simpler_adapter import (  # noqa: E402
+    GOOGLE_ROBOT_DEFAULT_CHECKPOINT,
+    fetch_policy_action_stats,
+)
+
+
+def _resolve_embodiment(task: str = None) -> str:
+    """VLS_VERIFY_TASK (see make_adapter) already names the robot, e.g.
+    `google_robot_open_top_drawer` vs `widowx_carrot_on_plate` -- reused here so
+    make_detector() applies the right bounds without a separate flag."""
+    task = task or os.environ.get("VLS_VERIFY_TASK", "widowx_carrot_on_plate")
+    return "google_robot" if "google_robot" in task else "widowx"
+
 
 # Keypoint-detector settings, matching upstream VLS (configs/perception.yaml)
 # except for three values (bounds, merge radius, feature extractor) noted below.
@@ -29,6 +42,9 @@ if str(PKG_ROOT) not in sys.path:
 #   bounds_*                 SIMPLER-specific. CALVIN's box
 #                            ([-1,-0.75,-0.1]..[0.1,0.75,1.2]) rejects every
 #                            point here, since SIMPLER's table sits at z ~ 0.87.
+#                            For google_robot, make_detector() overrides
+#                            bounds_min's z to 0.0 (see vls/runtime.py's
+#                            KEYPOINT_DETECTOR_CFG comment for the measurements).
 #   min_dist_bt_keypoints    MeanShift merge radius; sets keypoint DENSITY (max 5
 #                            candidates per object). VLS uses 0.05, which
 #                            collapses SIMPLER's 3-20 cm objects to ~1 keypoint
@@ -73,8 +89,18 @@ KEYPOINT_DETECTOR_CFG = {
 }
 
 
-def action_stats() -> dict:
-    """Bridge p01/p99 action statistics used by the trajectory decoder."""
+def action_stats(embodiment: str) -> dict:
+    """Action statistics used by the trajectory decoder's no-policy fallback.
+
+    WidowX: bound p01/p99 from bridge_statistics.json (the actual file
+    BridgeSimplerAdapter.postprocess reads in production). Google Robot: the
+    fractal checkpoint's own baked mean/std -- there is no equivalent local file
+    for it, since its real denormalize happens inside the policy's own
+    unnormalize_outputs, not an external stats file.
+    """
+    if embodiment == "google_robot":
+        stats = fetch_policy_action_stats(GOOGLE_ROBOT_DEFAULT_CHECKPOINT)
+        return {"mean": stats["mean"], "std": stats["std"]}
     stats = json.loads(BRIDGE_STATS.read_text())["action"]
     return {"p01": stats["p01"], "p99": stats["p99"]}
 
@@ -90,6 +116,9 @@ def make_detector(**overrides):
     from vls.core.keypoint_detector import KeypointDetector
 
     cfg = dict(KEYPOINT_DETECTOR_CFG)
+    if _resolve_embodiment() == "google_robot":
+        cfg["bounds_min"] = [-1.0, -1.0, 0.0]
+        cfg["min_dist_bt_keypoints"] = 0.10  # see vls/runtime.py's comment
     cfg.update(overrides)
     detector = KeypointDetector(cfg)
 
@@ -115,6 +144,7 @@ def make_adapter(task: str = None, seed: int = 0, settle: int = 12):
     Returns (env, adapter, obs).
     """
     task = task or os.environ.get("VLS_VERIFY_TASK", "widowx_carrot_on_plate")
+    embodiment = _resolve_embodiment(task)
     import simpler_env
     from vls.core.env_adapters import SimplerAdapter
 
@@ -122,8 +152,8 @@ def make_adapter(task: str = None, seed: int = 0, settle: int = 12):
                            renderer_kwargs={"offscreen_only": True})
     obs, _ = env.reset(seed=seed)
 
-    adapter = SimplerAdapter(env, {"vlm_camera": "3rd_view_camera"},
-                             action_stats=action_stats())
+    adapter = SimplerAdapter(env, {}, action_stats=action_stats(embodiment),
+                             embodiment=embodiment)
     adapter.on_reset(obs)
 
     # Objects are still settling right after reset; keypoints registered then

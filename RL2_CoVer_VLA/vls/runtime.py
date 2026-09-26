@@ -14,6 +14,15 @@ from pathlib import Path
 from typing import Optional
 
 from vls.core.env_adapters import SimplerAdapter
+from vls.core.env_adapters.simpler_adapter import (
+    GOOGLE_ROBOT_DEFAULT_CHECKPOINT,
+    fetch_policy_action_stats,
+)
+
+# GOOGLE_ROBOT_DEFAULT_CHECKPOINT is only a fallback for callers with no cfg
+# (e.g. verify/_common.py). build_vls below always prefers the checkpoint the
+# eval script actually loaded (cfg.pretrained_checkpoint, itself set from
+# eval_rl2_vls.sh's --pretrained_checkpoint), so the two can't drift apart.
 from vls.core.keypoint_detector import KeypointDetector
 from vls.core.keypoint_tracker import KeypointTracker
 from vls.core.pi0_steer import GuidedSampler
@@ -33,7 +42,14 @@ BRIDGE_STATS = REPO_ROOT / "INT-ACT/config/dataset/bridge_statistics.json"
 #                          transformers>=4.56, which breaks pi0's Gemma path.
 #                          Same 768-dim ViT-B capacity.
 #   bounds_*               SIMPLER's table sits at z ~ 0.87; CALVIN's box would
-#                          reject every point.
+#                          reject every point. For google_robot, `build_vls`
+#                          overrides bounds_min's z to 0.0: cabinet/drawer links
+#                          in the drawer and apple-in-drawer tasks sit as low as
+#                          z=0.017 (measured across all 10 registered
+#                          google_robot envs, 3 seeds each), well below
+#                          WidowX's 0.80 floor. x/y and bounds_max need no
+#                          change (measured union: x in [-0.61,0.25], y in
+#                          [-0.31,0.37], z in [0.017,1.011], all inside).
 #   min_dist_bt_keypoints  MeanShift merge radius: candidates (max 5 per object)
 #                          closer than this are merged, so it sets keypoint
 #                          DENSITY. VLS's 0.05 targets LIBERO/CALVIN-sized props;
@@ -58,7 +74,10 @@ KEYPOINT_DETECTOR_CFG = {
 }
 
 
-def _action_stats() -> dict:
+def _action_stats(embodiment: str, checkpoint: Optional[str] = None) -> dict:
+    if embodiment == "google_robot":
+        stats = fetch_policy_action_stats(checkpoint or GOOGLE_ROBOT_DEFAULT_CHECKPOINT)
+        return {"mean": stats["mean"], "std": stats["std"]}
     stats = json.loads(BRIDGE_STATS.read_text())["action"]
     return {"p01": stats["p01"], "p99": stats["p99"]}
 
@@ -90,16 +109,27 @@ def build_vls(env, cfg, pi0_policy, task_key: Optional[str] = None):
     Heavy objects (the DINO model in particular) are built once here, not per
     episode. Returns a ``VLSSteeringController``.
     """
+    embodiment = getattr(cfg, "embodiment", "widowx")
     adapter = SimplerAdapter(
         env,
-        {
-            "vlm_camera": "3rd_view_camera",
-            "guide_scale": cfg.vls_guide_scale,
-        },
-        action_stats=_action_stats(),
+        {"guide_scale": cfg.vls_guide_scale},
+        action_stats=_action_stats(embodiment, getattr(cfg, "pretrained_checkpoint", None)),
+        embodiment=embodiment,
+        policy=pi0_policy,
     )
 
-    detector = _make_detector()
+    detector_overrides = None
+    if embodiment == "google_robot":
+        detector_overrides = {
+            "bounds_min": [-1.0, -1.0, 0.0],
+            # 0.025 (WidowX default) targets ~2-3 keypoints on 3-20cm props;
+            # Google Robot's cabinet body/drawers are much larger, so the same
+            # radius caps out at 5 (num_candidates_per_mask) per object with no
+            # merging (20 total on google_robot_open_top_drawer). 0.10 brings
+            # that down to ~3-5 per object (15-17 total).
+            "min_dist_bt_keypoints": 0.10,
+        }
+    detector = _make_detector(detector_overrides)
     tracker = KeypointTracker(adapter)
     sampler = GuidedSampler(pi0_policy, adapter, cfg)
 
