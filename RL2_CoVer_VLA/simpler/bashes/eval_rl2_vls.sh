@@ -36,7 +36,7 @@ NUM_TRIALS_PER_TASK=50
 #        RBF diversity and FK resampling self-disable below 2 particles)
 #   5  = VLS's own run_main.sh
 #   10 = the paper's ablation configs
-ACTION_SAMPLES_PREFAIL=5
+ACTION_SAMPLES_PREFAIL=40
 
 # Must stay 1 / 0: see the isolation asserts above.
 LANG_REPHRASE_NUM_PREFAIL=1
