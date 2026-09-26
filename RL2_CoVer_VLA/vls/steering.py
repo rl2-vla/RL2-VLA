@@ -257,14 +257,15 @@ class VLSSteeringController:
         """Schmitt trigger on reward + gripper transitions, gating a VLM query."""
         curr_reward = self.sampler.get_normalized_reward()
 
-        # BridgeSimplerAdapter.postprocess_gripper maps model gripper output
-        # (0=close,1=open) to -1=CLOSE, +1=OPEN for the simpler/ManiSkill env
-        # (INT-ACT/src/experiments/env_adapters/simpler.py:218-224). So on the
-        # EXECUTED action channel this reads: action < 0 = CLOSE, action > 0 = OPEN.
-        # This was previously inverted, which fed the Schmitt trigger below (and
-        # the "gripper opened"/"gripper closed" reason strings sent to the stage
-        # VLM) the wrong event on every real open/close transition.
-        curr_open = (gripper_val > 0) if gripper_val is not None else None
+        # Which SIGN of the executed gripper channel means OPEN is
+        # embodiment-dependent and the two are OPPOSITE (widowx +1=OPEN,
+        # google_robot +1=CLOSE) -- see SimplerAdapter._GRIPPER_OPEN_SIGN.
+        # Hardcoding widowx's convention fed the Schmitt trigger below (and the
+        # "gripper opened"/"gripper closed" reason strings sent to the stage
+        # VLM) the wrong event on every real transition; it was fixed once for
+        # widowx and would silently regress for google_robot without this.
+        sign = getattr(self.adapter, "gripper_open_sign", 1.0)
+        curr_open = (gripper_val * sign > 0) if gripper_val is not None else None
         changed = (self._prev_gripper_open is not None and curr_open is not None
                    and curr_open != self._prev_gripper_open)
 

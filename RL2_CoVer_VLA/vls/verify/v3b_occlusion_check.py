@@ -93,7 +93,7 @@ for step in range(N_STEPS):
     n = np.linalg.norm(d) + 1e-6
     act = np.zeros(env.action_space.shape, dtype=np.float32)
     act[:3] = d / n * min(STEP_M, n)
-    act[-1] = -1.0
+    act[-1] = -1.0  # closes widowx's gripper, opens google_robot's -- see v3_keypoint_check.py's note
     obs, *_ = env.step(act)
     adapter.set_obs(obs)
 

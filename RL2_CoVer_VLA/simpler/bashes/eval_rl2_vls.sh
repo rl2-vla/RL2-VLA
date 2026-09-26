@@ -36,7 +36,7 @@ NUM_TRIALS_PER_TASK=50
 #        RBF diversity and FK resampling self-disable below 2 particles)
 #   5  = VLS's own run_main.sh
 #   10 = the paper's ablation configs
-ACTION_SAMPLES_PREFAIL=5
+ACTION_SAMPLES_PREFAIL=40
 
 # Must stay 1 / 0: see the isolation asserts above.
 LANG_REPHRASE_NUM_PREFAIL=1
@@ -84,7 +84,7 @@ LOCAL_LOG_DIR="./experiments"
 TASK_SUITE_TYPE="IID"
 
 # Embodiment: "widowx" (Bridge) or "google_robot" (fractal).
-EMBODIMENT="widowx"
+EMBODIMENT="google_robot"
 
 # ==========================================================================
 # Other config
@@ -116,9 +116,9 @@ if [[ "$EMBODIMENT" == "google_robot" ]]; then
         simpler_google_close_middle_drawer
         simpler_google_close_bottom_drawer
         simpler_google_apple_in_drawer
-        simpler_google_coke_horizontal
-        simpler_google_coke_vertical
-        simpler_google_coke_standing
+        # simpler_google_coke_horizontal
+        # simpler_google_coke_vertical
+        # simpler_google_coke_standing
     )
 elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
     PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"

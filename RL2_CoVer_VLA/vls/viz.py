@@ -174,11 +174,14 @@ def render_frame(
         except Exception as e:
             log.warning(f"keypoint overlay failed: {e}")
 
-    # BridgeSimplerAdapter.postprocess_gripper: -1=CLOSE, +1=OPEN on the
-    # executed action channel (INT-ACT/.../simpler.py:218-224). Must match the
-    # polarity used by the Schmitt trigger in steering.py's _update_stage.
+    # Which sign of the executed gripper channel means OPEN is
+    # embodiment-dependent and opposite between the two (widowx +1=OPEN,
+    # google_robot +1=CLOSE) -- see SimplerAdapter.gripper_open_sign. Must
+    # match the polarity used by the Schmitt trigger in steering.py's
+    # _update_stage, which already reads this the same way.
+    open_sign = getattr(adapter, "gripper_open_sign", 1.0)
     gripper_str = (
-        f"Grip:{'O' if gripper_val is not None and gripper_val > 0 else 'C'}"
+        f"Grip:{'O' if gripper_val is not None and gripper_val * open_sign > 0 else 'C'}"
         f"({gripper_val:.2f})"
         if gripper_val is not None
         else "Grip:-"

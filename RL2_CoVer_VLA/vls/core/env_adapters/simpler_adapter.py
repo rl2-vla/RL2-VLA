@@ -64,6 +64,17 @@ _NON_OBJECT_ACTOR_NAMES = frozenset({"ground", "goal_site", "", "arena"})
 _ROBOT_UID_SUBSTR = {"widowx": "widowx", "google_robot": "google_robot"}
 _DEFAULT_CAMERA = {"widowx": "3rd_view_camera", "google_robot": "overhead_camera"}
 
+# Sign of the EXECUTED gripper channel that means OPEN. The two embodiments are
+# OPPOSITE, per their own postprocess_gripper sources:
+#   widowx        BridgeSimplerAdapter: "convert to -1 close, 1 open for simpler"
+#                 (INT-ACT/src/experiments/env_adapters/simpler.py:218-222)
+#   google_robot  EDRSimplerAdapterRaw: "simpler wants -1 open / 1 close"
+#                 (simpler/eval_utils.py:147-151; confirmed live -- 10 steps of
+#                 action[-1]=+1 drove eef_pos[7] 1.0 -> 0.17, toward closed)
+# steering.py's stage machine reads this to emit "gripper opened"/"gripper
+# closed" triggers, so a wrong sign silently inverts every grasp/release event.
+_GRIPPER_OPEN_SIGN = {"widowx": 1.0, "google_robot": -1.0}
+
 # Checkpoint whose baked unnormalize_outputs stats fetch_policy_action_stats()
 # reads for the no-policy (verify script) fallback.
 GOOGLE_ROBOT_DEFAULT_CHECKPOINT = "HaomingSong/lerobot-pi0-fractal"
@@ -202,6 +213,12 @@ class SimplerAdapter(BaseEnvAdapter):
     @property
     def unwrapped_env(self):
         return getattr(self._env, "unwrapped", self._env)
+
+    @property
+    def gripper_open_sign(self) -> float:
+        """+1 if a POSITIVE executed gripper action means OPEN, -1 if it means
+        CLOSE. See _GRIPPER_OPEN_SIGN -- the two embodiments are opposite."""
+        return _GRIPPER_OPEN_SIGN[self.embodiment]
 
     def set_obs(self, obs: dict) -> None:
         """Cache the latest observation. ManiSkill returns obs from step()/reset();

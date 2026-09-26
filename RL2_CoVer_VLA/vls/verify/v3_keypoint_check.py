@@ -118,7 +118,16 @@ for step in range(TOTAL_STEPS):
     d = R_base.T @ goal
     n = np.linalg.norm(d) + 1e-6
     act[:3] = d / n * min(STEP_M, n)
-    act[-1] = -1.0                         # gripper open throughout
+    # NOTE: despite the name, this raw env action actually CLOSES the widowx
+    # gripper (verified live: action=-1 -> eef_pos[7] 1.0->~0); for
+    # google_robot -1 does open it. Kept as -1 for both regardless -- it's
+    # the value this push routine's constants (OFFSET_M, STEP_M, HOVER_M)
+    # were tuned and visually validated against, and V3 only asserts tracking
+    # fidelity (unaffected by gripper state), not gripper state itself. Using
+    # adapter.gripper_open_sign here would genuinely open widowx's gripper,
+    # which contacts the object very differently and sends it flying out of
+    # frame -- correct-to-comment, but a worse, untuned test.
+    act[-1] = -1.0
     obs, *_ = env.step(act)
     adapter.set_obs(obs)
 
