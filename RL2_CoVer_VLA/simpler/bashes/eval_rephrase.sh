@@ -45,8 +45,13 @@ export PRISMATIC_DATA_ROOT=.
 BRIDGE_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"       # INTACT Pi0 finetuned on Bridge-V2
 FRACTAL_CHECKPOINT="HaomingSong/lerobot-pi0-fractal"        # lerobot-format Pi0 finetuned on fractal (Google Robot)
 
+# CoVer verifier checkpoints per embodiment
+BRIDGE_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_bridge.pt"                                                     # CoVer verifier trained on Bridge-V2
+FRACTAL_VERIFIER_CKPT="/home/coder/hdd/cover_verifier_training/fractal/checkpoints/converged/fractal_siglip_resume_step_63360_converged.pt"    # CoVer verifier trained on fractal (Google Robot)
+
 if [[ "$EMBODIMENT" == "google_robot" ]]; then
     PRETRAINED_CHECKPOINT="$FRACTAL_CHECKPOINT"
+    VERIFIER_CKPT="$FRACTAL_VERIFIER_CKPT"
     TASK_SUITES=(
         simpler_google_open_top_drawer
         simpler_google_open_middle_drawer
@@ -61,6 +66,7 @@ if [[ "$EMBODIMENT" == "google_robot" ]]; then
     )
 elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
     PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
+    VERIFIER_CKPT="$BRIDGE_VERIFIER_CKPT"
     TASK_SUITES=(
         simpler_put_eggplant_in_basket
         simpler_spoon_on_towel
@@ -69,6 +75,7 @@ elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
     )
 else
     PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
+    VERIFIER_CKPT="$BRIDGE_VERIFIER_CKPT"
     TASK_SUITES=(
         simpler_orange_juice_on_plate
         simpler_spoon_on_towel_google
@@ -112,6 +119,7 @@ for seed in "${SEEDS[@]}"; do
     #         --action_samples_prefail 1 \
     #         --composed_samples_prefail 0 \
     #         --use_verifier True \
+    #         --verifier_checkpoint "$VERIFIER_CKPT" \
     #         --critic cover \
     #         --seed "$seed" \
     #         --local_log_dir "$LOCAL_LOG_DIR" \

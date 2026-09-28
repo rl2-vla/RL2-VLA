@@ -3,7 +3,23 @@
   "instructions": {
     "open top drawer": {
       "original": "open top drawer",
-      "ert_rephrases": [],
+      "ert_rephrases": [
+        "Pull the upper drawer open",
+        "Slide the top drawer out",
+        "Access the first drawer",
+        "Open the upper drawer",
+        "Pull out the top drawer",
+        "Open the first drawer",
+        "Slide open the upper drawer",
+        "Pull the top drawer",
+        "Access the upper drawer",
+        "Open the first drawer in the chest",
+        "Pull the drawer at the top",
+        "Slide out the top drawer",
+        "Open the topmost drawer",
+        "Pull open the uppermost drawer",
+        "Slide the first drawer open"
+      ],
       "rephrases_original": "open top drawer",
       "random_rephrases": "",
       "count": 15
