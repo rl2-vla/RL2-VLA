@@ -15,6 +15,8 @@ Usage:
     keypoints, projected, mask_ids = detector.get_keypoints_from_data(rgb, points, seg, seg_names)
 """
 
+import signal
+
 import numpy as np
 import torch
 import cv2
@@ -446,15 +448,44 @@ class KeypointDetector:
             if torch.isnan(X).any():
                 logger.warning(f"Warning: NaN detected in features for mask {idx}, skipping")
                 continue
-            
+
+            # Guard against kmeans_pytorch hanging forever: if there are fewer unique
+            # feature points than requested clusters, some cluster is guaranteed to end
+            # up empty at some iteration, which makes its center (and then center_shift)
+            # NaN. Since NaN < tol is always False, the library's while-loop never
+            # terminates in that case.
+            num_unique_points = torch.unique(X, dim=0).shape[0]
+            if num_unique_points < num_clusters:
+                logger.warning(
+                    f"Mask {idx}: Only {num_unique_points} unique feature points for "
+                    f"{num_clusters} requested clusters, skipping to avoid kmeans hang"
+                )
+                continue
+
             # the feature dimension contains both feature and pixel coordinates
             # cluster features to get meaningful regions
-            cluster_ids_x, cluster_centers = kmeans(
-                X=X,
-                num_clusters=self.config['num_candidates_per_mask'],
-                distance='euclidean',
-                device=self.device,
-            )
+            #
+            # kmeans_pytorch's while-loop only exits when center_shift**2 < tol, and an
+            # empty cluster (zero points assigned) makes its center NaN, which can never
+            # satisfy that condition again -> infinite loop. A converged call normally
+            # takes well under a second, so a 10s SIGALRM is a conservative kill switch.
+            def _kmeans_timed_out(signum, frame):
+                raise TimeoutError("kmeans exceeded 10s, likely stuck in an empty-cluster/NaN loop")
+
+            signal.signal(signal.SIGALRM, _kmeans_timed_out)
+            signal.alarm(10)
+            try:
+                cluster_ids_x, cluster_centers = kmeans(
+                    X=X,
+                    num_clusters=self.config['num_candidates_per_mask'],
+                    distance='euclidean',
+                    device=self.device,
+                )
+            except TimeoutError as e:
+                logger.warning(f"Mask {idx}: {e}, skipping")
+                continue
+            finally:
+                signal.alarm(0)
             cluster_centers = cluster_centers.to(self.device)
             for cluster_id in range(self.config['num_candidates_per_mask']):
                 cluster_center = cluster_centers[cluster_id][:3]
