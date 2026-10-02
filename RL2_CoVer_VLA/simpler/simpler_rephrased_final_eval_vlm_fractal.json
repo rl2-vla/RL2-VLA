@@ -2,7 +2,7 @@
   "timestamp": "20260923_000000",
   "instructions": {
     "open top drawer": {
-      "original": "open top drawer",
+      "original": "Extend the upper storage compartment outwards",
       "ert_rephrases": [
         "Pull the upper drawer open",
         "Slide the top drawer out",
@@ -25,7 +25,7 @@
       "count": 15
     },
     "open middle drawer": {
-      "original": "open middle drawer",
+      "original": "Extend the middle storage compartment outwards",
       "ert_rephrases": [
         "Pull the middle compartment open.",
         "Slide open the central drawer.",
@@ -48,7 +48,7 @@
       "count": 15
     },
     "open bottom drawer": {
-      "original": "open bottom drawer",
+      "original": "Extend the bottom storage compartment outwards",
       "ert_rephrases": [
         "Open the lowest drawer.",
         "Pull the bottom compartment.",
@@ -71,7 +71,7 @@
       "count": 15
     },
     "close top drawer": {
-      "original": "close top drawer",
+      "original": "Slide the upper compartment back into its slot",
       "ert_rephrases": [
         "Shut the top drawer.",
         "Close the upper compartment.",
@@ -94,7 +94,7 @@
       "count": 15
     },
     "close middle drawer": {
-      "original": "close middle drawer",
+      "original": "Slide the middle compartment back into its slot",
       "ert_rephrases": [
         "Shut the middle drawer",
         "Push the central drawer closed",
@@ -117,7 +117,7 @@
       "count": 15
     },
     "close bottom drawer": {
-      "original": "close bottom drawer",
+      "original": "Slide the bottom compartment back into its slot",
       "ert_rephrases": [
         "Shut the bottom drawer.",
         "Close the lowest compartment.",
@@ -140,7 +140,7 @@
       "count": 15
     },
     "apple_in_top_drawer": {
-      "original": "open top drawer and place apple into top drawer",
+      "original": "Pull the upper compartment outward and stow the apple within it",
       "ert_rephrases": [
         "Pull the top drawer open and put the apple inside.",
         "Open the upper drawer and insert the apple.",
@@ -163,7 +163,7 @@
       "count": 15
     },
     "pick coke can": {
-      "original": "pick coke can",
+      "original": "Grasp the beverage container and raise it",
       "ert_rephrases": [
         "Grab the red soda can.",
         "Take the red drink can.",

@@ -704,6 +704,14 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     execute_action = np.asarray(execute_action, dtype=np.float64).copy()
                     execute_action[-1] = sticky_gripper(execute_action[-1])
 
+                    # Verifier history: record the executed gripper state (1 open, 0 closed) instead of
+                    # the chosen candidate's prediction, matching the fractal verifier's rel2abs training
+                    # labels (same +-0.1 thresholds; in between keeps the previous state)
+                    if cfg.use_verifier:
+                        cmd = execute_action[-1]  # simpler: -1 open, +1 close
+                        prev_open = action_history[-2][-1] if len(action_history) > 1 else 1.0
+                        action_history[-1][-1] = 1.0 if cmd < -0.1 else 0.0 if cmd > 0.1 else prev_open
+
                 # Execute action in environment
                 obs, reward, done, trunc, info = env.step(execute_action)
 
