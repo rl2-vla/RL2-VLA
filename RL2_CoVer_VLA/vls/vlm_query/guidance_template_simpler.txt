@@ -38,15 +38,7 @@ def stage1_guidance(keypoints, action_sequence):
 
 
 **CRITICAL: Task specific rules:**
-- **CRITICAL: For scene with pick something into basket, you do not need to create stage 2 reward function, since we do not need to make decision here, just return 0.
-- **CRITICAL: For scene with something and place it in the back compartment of the caddy, you do not need to create stage 2 reward function, since we do not need to make decision here, just return 0.
-- "on the top of the wooden cabinet" means on the top surface of the whole cabinet, not in the top drawer!
-- "next to the plate" - LOOK at the image and identify which object is visually next to the plate, then use that keypoint index
-- "on the left/right" - LOOK at the image and identify which object is on the left/right side
-- For "put something on rack", just return 0 for stage2, policy knows how to put.
-
-- **CRITICAL: Make sure to carefully distinguish "the bowl on top of cabinet" and "the bowl in the top drawer of cabinet" !!!
-- Take care of which bowl is NOT between A and B, look at keypoint-object map to choose the right one!
+- **CRITICAL: For "put X in basket" tasks, the basket sits in a sink with a raised divider wall between the two sink compartments. When writing stage 2 guidance, lift the grasped object to clear the divider BEFORE moving horizontally towards the basket, then lower near the end ("lift, then move over, then descend", not a straight line). Target Z during transit MUST be at least 10cm above the basket keypoint's Z, e.g. `target_z = basket_keypoint_z + 0.10`. Weight Z more heavily than XY until near the end of the trajectory.
 
 **Task breakdown format - include identified keypoint indices:**
 ```
