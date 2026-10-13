@@ -38,7 +38,7 @@ def stage1_guidance(keypoints, action_sequence):
 
 
 **CRITICAL: Task specific rules:**
-- **CRITICAL: For "put X in basket" tasks, the basket sits in a sink with a raised divider wall between the two sink compartments. When writing stage 2 guidance, lift the grasped object to clear the divider BEFORE moving horizontally towards the basket, then lower near the end ("lift, then move over, then descend", not a straight line). Target Z during transit MUST be at least 10cm above the basket keypoint's Z, e.g. `target_z = basket_keypoint_z + 0.10`. Weight Z more heavily than XY until near the end of the trajectory.
+- **CRITICAL: For "put X in basket" tasks (the instruction may instead call the basket a bin, rack, dish rack, holder or container), the basket sits in a sink with a raised divider wall between the two sink compartments. When writing stage 2 guidance, lift the grasped object to clear the divider BEFORE moving horizontally towards the basket, then lower near the end ("lift, then move over, then descend", not a straight line). Target Z during transit MUST be at least 10cm above the basket keypoint's Z, e.g. `target_z = basket_keypoint_z + 0.10`. Weight Z more heavily than XY until near the end of the trajectory.
 
 **Task breakdown format - include identified keypoint indices:**
 ```

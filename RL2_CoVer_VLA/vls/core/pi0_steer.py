@@ -186,6 +186,8 @@ class GuidedSampler:
         # {"pi0": (3,), "vls": (3,)} world-frame displacements of the two terms
         # summed to form the denoising velocity. None until guidance first runs.
         self._last_terms = None
+        # Prompt of particle 0 (the executed one) from the last sample() call.
+        self.last_executed_prompt = None
 
     def reset_stage(self):
         """Clear the per-stage reward baseline (call on stage transitions)."""
@@ -276,6 +278,7 @@ class GuidedSampler:
         # persist from the last guided chunk, so the video would keep drawing a
         # VLS arrow on frames where the stage machine has turned guidance OFF.
         self._last_terms = None
+        self.last_executed_prompt = None
 
         # Which prompt each particle came from (0 = base prompt), permuted with
         # every FKD reindex so we can report the rephrase that gets executed.
@@ -424,6 +427,7 @@ class GuidedSampler:
                 # The final-step sort is what puts the best particle at index 0.
                 log.warning("FKD never reached its terminal step; particle 0 is not reward-ranked")
 
+        self.last_executed_prompt = unique_prompts[int(prompt_origin[0])]
         if verbose and len(unique_prompts) > 1:
             k = int(prompt_origin[0])
             log.info(

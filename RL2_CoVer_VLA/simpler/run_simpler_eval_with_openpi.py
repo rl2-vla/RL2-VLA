@@ -363,6 +363,23 @@ def eval_simpler(cfg: GenerateConfig) -> None:
             else:
                 raise ValueError(f"No preloaded rephrases found for task: {original_task_description}")
 
+        # VLS: prompt for the guidance and stage-recognition VLMs, fixed for every
+        # episode of this task. A single-prompt run uses the JSON's "original";
+        # a multi-prompt run uses the first ERT rephrase. Never the env prompt
+        # unless no rephrases are available.
+        vls_instruction = None
+        if cfg.use_vls:
+            if cfg.lang_rephrase_num_prefail == 1 and matching_task_id is not None:
+                vls_instruction = preloaded_rephrases[matching_task_id]["original"]
+            elif rephrased_list:
+                vls_instruction = rephrased_list[0]
+            else:
+                vls_instruction = original_task_description
+                warn_msg = (f"[VLS] WARNING: no ERT rephrases for '{original_task_description}'; "
+                            f"guidance and stage recognition fall back to the env prompt")
+                print(f"\033[91m{warn_msg}\033[0m")
+                log_file.write(f"{warn_msg}\n")
+
         # Run episodes for this task
         task_episodes, task_successes = 0, 0
         for eps_idx in tqdm.tqdm(range(cfg.num_trials_per_task)):
@@ -377,7 +394,10 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                 for i, p in enumerate(rephrased_list[:cfg.lang_rephrase_num_prefail - 1], start=1):
                     print(f"  Rephrase {i}: {p}")
                     log_file.write(f"  Rephrase {i}: {p}\n")
-            
+            if vls_instruction is not None:
+                print(f"  [VLS] guidance/stage instruction: {vls_instruction}")
+                log_file.write(f"  [VLS] guidance/stage instruction: {vls_instruction}\n")
+
             if eps_idx % 50 == 0:
                 seeds = itertools.count(1000)
 
@@ -465,7 +485,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                             cfg.local_log_dir, run_id, "vls", f"{task_description[:40]}",
                             f"episode_{eps_idx + 1}",
                         )
-                        vls.begin_episode(task_description, episode_dir=vls_episode_dir)
+                        vls.begin_episode(vls_instruction, episode_dir=vls_episode_dir)
 
                 # PREFAIL init (i.e. before failure detection)
                 action_samples = cfg.action_samples_prefail
@@ -678,6 +698,11 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                             # verifier branch entirely.
                             if _vls_queue is not None and len(_vls_queue) == cfg.n_action_steps:
                                 action_queue = _vls_queue
+                                # Like the verifier path's max_instruction: the
+                                # executed particle's prompt leads the next chunk.
+                                if vls.sampler.last_executed_prompt is not None:
+                                    task_description = vls.sampler.last_executed_prompt
+                                    log_file.write(f"[VLS] t={t} executed prompt: \"{task_description}\"\n")
                         except Exception as e:
                             # LLM-written guidance can raise anything. Degrade to
                             # the unguided chunk rather than killing the run.

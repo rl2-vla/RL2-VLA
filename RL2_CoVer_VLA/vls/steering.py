@@ -73,6 +73,9 @@ class VLSSteeringController:
         self.task_key = task_key
 
         self.guidance_fns: Dict[int, List[Callable]] = {}
+        # Instruction given to begin_episode; stage recognition reuses it so
+        # both VLM queries see the same prompt for the whole episode.
+        self.instruction: Optional[str] = None
         self.stage_descriptions = ""
         self.keypoint_id_to_object: Dict[int, str] = {}
         self.init_img_with_keypoints = None
@@ -106,6 +109,7 @@ class VLSSteeringController:
         Returns True if steering is ready; False disables guidance for the
         episode (the rollout continues unguided rather than aborting).
         """
+        self.instruction = instruction
         try:
             rgb, _, points, seg, seg_names = self.adapter.get_keypoint_detection_inputs()
 
@@ -206,6 +210,7 @@ class VLSSteeringController:
             "num_keypoints": len(keypoints),
             "key_points_objects_map": kp_to_object,
         }
+        log.info(f"[Guidance VLM] instruction: \"{instruction}\"")
         return self.vlm_agent.generate_guidance(projected_img, instruction, metadata)
 
     def _load_guidance(self, guidance_dir: str):
@@ -282,10 +287,11 @@ class VLSSteeringController:
             if self._vlm_query_count < self.vlm_query_limit:
                 log.info(f"[Trigger] {trigger} "
                          f"(query {self._vlm_query_count + 1}/{self.vlm_query_limit})")
+                log.info(f"[Stage VLM] instruction: \"{self.instruction}\"")
                 try:
                     new_stage, need_guidance = self.stage_recognizer.identify_stage_and_guidance(
                         current_rgb=np.array(self.adapter.get_vlm_image()),
-                        instruction=self.adapter.get_task_description(),
+                        instruction=self.instruction,
                         stage_descriptions=self.stage_descriptions,
                         init_img_with_keypoints=self.init_img_with_keypoints,
                         keypoint_id_to_object=self.keypoint_id_to_object,
