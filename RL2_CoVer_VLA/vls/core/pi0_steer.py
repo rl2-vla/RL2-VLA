@@ -277,12 +277,10 @@ class GuidedSampler:
         # VLS arrow on frames where the stage machine has turned guidance OFF.
         self._last_terms = None
 
-        # One fixed prompt for the whole batch: the batch dimension is particles,
-        # not a prompt mixture (upstream broadcasts a single instruction).
-        assert len(set(task_list)) == 1, (
-            f"VLS expects a single prompt across the batch, got {len(set(task_list))}. "
-            "Set lang_rephrase_num=1."
-        )
+        # Which prompt each particle came from (0 = base prompt), permuted with
+        # every FKD reindex so we can report the rephrase that gets executed.
+        unique_prompts = list(dict.fromkeys(task_list))
+        prompt_origin = torch.tensor([unique_prompts.index(p) for p in task_list])
 
         policy, model = self.policy, self.policy.model
         horizon = policy.config.n_action_steps
@@ -411,6 +409,7 @@ class GuidedSampler:
                     past_key_values, prefix_pad_masks, state = _reindex_particles(
                         idx, past_key_values, prefix_pad_masks, state
                     )
+                    prompt_origin = prompt_origin[idx.cpu()]
 
             time = time + dt
             step_idx += 1
@@ -424,6 +423,13 @@ class GuidedSampler:
             if not fkd.reached_terminal:
                 # The final-step sort is what puts the best particle at index 0.
                 log.warning("FKD never reached its terminal step; particle 0 is not reward-ranked")
+
+        if verbose and len(unique_prompts) > 1:
+            k = int(prompt_origin[0])
+            log.info(
+                f"[Step {global_step}] executed particle from prompt {k}/{len(unique_prompts) - 1} "
+                f"({'base' if k == 0 else 'rephrase'}): \"{unique_prompts[k]}\""
+            )
 
         # Baseline for the sigmoid comes from the FIRST chunk's final reward.
         if reward_history and self._stage_init_reward is None:
@@ -500,8 +506,7 @@ def _reindex_particles(indices, past_key_values, prefix_pad_masks, state):
     """Reorder per-particle state to follow an FKD resample.
 
     Without this, particle i would keep denoising under particle j's language /
-    image conditioning. It is a no-op while every batch row shares one prompt
-    (which the single-prompt assert guarantees), but is applied defensively.
+    image conditioning, which matters when batch rows carry different rephrases.
     """
     idx = indices.to(prefix_pad_masks.device)
 
@@ -515,7 +520,7 @@ def _reindex_particles(indices, past_key_values, prefix_pad_masks, state):
     return past_key_values, prefix_pad_masks[idx], state[idx]
 
 
-def compute_guided_actions(cfg, task_description, processed_obs, image_key,
+def compute_guided_actions(cfg, task_list, processed_obs, image_key,
                            pi0_policy, sampler, keypoints, guidance_fn,
                            action_noise_std, batch_size,
                            global_step=0, current_stage=1):
@@ -526,7 +531,6 @@ def compute_guided_actions(cfg, task_description, processed_obs, image_key,
     always ``None``: there is no QAM composition under VLS.
     """
     action_queue = deque([], maxlen=cfg.n_action_steps)
-    task_list = [task_description] * batch_size
 
     actions = sampler.sample(
         processed_obs=processed_obs,

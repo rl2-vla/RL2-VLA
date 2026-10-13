@@ -185,13 +185,13 @@ def eval_simpler(cfg: GenerateConfig) -> None:
         assert not cfg.use_verifier, "VLS executes batch index 0; set use_verifier=False"
         assert cfg.composed_samples == 0 and cfg.composed_samples_prefail == 0, \
             "VLS replaces QAM compositional steering; set composed_samples{,_prefail}=0"
-        assert cfg.lang_rephrase_num == 1 and cfg.lang_rephrase_num_prefail == 1, \
-            "VLS uses ONE fixed prompt per episode; set lang_rephrase_num{,_prefail}=1"
+        assert cfg.lang_rephrase_num == 1, \
+            "Post-fail lang_rephrase_num is unreachable under VLS; set lang_rephrase_num=1"
         assert cfg.lang_transform_type == "rephrase", \
-            "VLS evaluates under distribution shift: lang_transform_type='rephrase' with " \
-            "lang_rephrase_num=1 selects the JSON's 'original' field (the OOD base prompt)"
-        # action_samples_prefail is deliberately unconstrained: it IS VLS's
-        # sample_batch_size (1 = shipped default, 5 = run_main.sh, 10 = ablations).
+            "VLS evaluates under distribution shift: lang_transform_type='rephrase' puts the " \
+            "JSON's 'original' field (the OOD base prompt) first, followed by rephrases"
+        # VLS particle count = action_samples_prefail * lang_rephrase_num_prefail,
+        # grouped by prompt (e.g. 5 x 8 rephrases, or 40 x 1 for the base prompt only).
 
     # Set random seed
     set_seed_everywhere(cfg.seed)
@@ -373,6 +373,10 @@ def eval_simpler(cfg: GenerateConfig) -> None:
             
             print(f"\nTask: {task_description}")
             log_file.write(f"\nTask: {task_description}\n")
+            if rephrased_list is not None and cfg.lang_rephrase_num_prefail > 1:
+                for i, p in enumerate(rephrased_list[:cfg.lang_rephrase_num_prefail - 1], start=1):
+                    print(f"  Rephrase {i}: {p}")
+                    log_file.write(f"  Rephrase {i}: {p}\n")
             
             if eps_idx % 50 == 0:
                 seeds = itertools.count(1000)
@@ -658,7 +662,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                             # VLS installs its queue directly instead.
                             _vls_actions, _vls_queue, _ = compute_guided_actions(
                                 cfg=cfg,
-                                task_description=task_description,
+                                task_list=task_list,
                                 processed_obs=processed_obs,
                                 image_key=image_key,
                                 pi0_policy=pi0_policy,
@@ -666,7 +670,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                                 keypoints=keypoints,
                                 guidance_fn=guidance_fns,
                                 action_noise_std=action_noise_std,
-                                batch_size=policy_batch_inference_size,
+                                batch_size=batch_size,
                                 global_step=t,
                                 current_stage=vls.current_stage,
                             )

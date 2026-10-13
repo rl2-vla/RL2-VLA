@@ -31,15 +31,14 @@ GPU=0
 SEEDS=(42 0 7)
 NUM_TRIALS_PER_TASK=50
 
-# Particle count for the steered sampler == VLS's sample_batch_size.
-#   1  = VLS's shipped configs/config.yaml default (gradient guidance only;
-#        RBF diversity and FK resampling self-disable below 2 particles)
-#   5  = VLS's own run_main.sh
-#   10 = the paper's ablation configs
-ACTION_SAMPLES_PREFAIL=40
+# VLS particle count (sample_batch_size) = ACTION_SAMPLES_PREFAIL x LANG_REPHRASE_NUM_PREFAIL,
+# grouped by prompt: prompt 0 is the OOD base prompt, the rest are rephrases.
+# Rephrases only diversify the policy prior per particle; VLS guidance, FKD and
+# executing particle 0 are unchanged. 40 x 1 reproduces the single-prompt baseline.
+ACTION_SAMPLES_PREFAIL=5
+LANG_REPHRASE_NUM_PREFAIL=8
 
-# Must stay 1 / 0: see the isolation asserts above.
-LANG_REPHRASE_NUM_PREFAIL=1
+# Must stay 0: see the isolation asserts above.
 COMPOSED_SAMPLES_PREFAIL=0
 
 # ==========================================================================
