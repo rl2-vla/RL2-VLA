@@ -715,12 +715,14 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                 # Execute action in environment
                 obs, reward, done, trunc, info = env.step(execute_action)
 
-                # Google Robot: long-horizon tasks (e.g. place-apple-in-drawer) 
-                # switch the instruction mid-episode 
-                if is_google_robot:
-                    new_instr = env.get_language_instruction()
-                    if new_instr != task_description:
-                        task_description = new_instr
+                # Google Robot: long-horizon tasks (e.g. place-apple-in-drawer)
+                # switch the instruction mid-episode
+                # NOTE: Disabled - it compared against task_description (the rephrased/selected prompt), so it
+                # overwrote it with the original env instruction after every step.
+                # if is_google_robot:
+                #     new_instr = env.get_language_instruction()
+                #     if new_instr != task_description:
+                #         task_description = new_instr
 
                 # Log at inference-step boundaries, matching open-pi-zero format
                 if t % eff_act_steps == 0 and cfg.log_safe_training_data:
