@@ -101,6 +101,11 @@ class GenerateConfig:
 
     # Action chunking parameters
     n_action_steps: int = 4
+    # Env steps executed per predicted chunk, i.e. the re-planning / verifier re-selection
+    # period. -1 keeps the open_pi_zero default for the embodiment (google_robot 2,
+    # widowx 4). Must be in [1, n_action_steps]: the queue holds n_action_steps actions
+    # and eff_act_steps of them are consumed before it is regenerated.
+    eff_act_steps: int = -1
     action_ensemble_temp: float = -0.8
     
     # Language transformation parameters
@@ -153,8 +158,14 @@ def eval_simpler(cfg: GenerateConfig) -> None:
     cfg.embodiment = getattr(get_benchmark(cfg.task_suite_name), "embodiment", "widowx")
     is_google_robot = cfg.embodiment == "google_robot"
 
-    # Actions executed per predicted chunk (open_pi_zero: bridge 4, fractal 2)
-    eff_act_steps = 2 if is_google_robot else 4
+    # Actions executed per predicted chunk (open_pi_zero: bridge 4, fractal 2).
+    # cfg.eff_act_steps overrides; -1 means "use the embodiment default".
+    eff_act_steps = cfg.eff_act_steps if cfg.eff_act_steps > 0 else (2 if is_google_robot else 4)
+    assert 1 <= eff_act_steps <= cfg.n_action_steps, (
+        f"eff_act_steps must be in [1, n_action_steps={cfg.n_action_steps}], got {eff_act_steps}"
+    )
+    print(f"Executing {eff_act_steps}/{cfg.n_action_steps} actions per predicted chunk "
+          f"(embodiment={cfg.embodiment}, cfg.eff_act_steps={cfg.eff_act_steps})")
 
     # Set action un-normalization key
     if cfg.model_family == "prismatic":
@@ -564,7 +575,8 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     # Process actions for verifier
                     action_histories_list = process_inputs(
                         batch_size, predefined_action_queue, 
-                        verifier_action=True, action_history=action_history.copy(), cfg=cfg
+                        verifier_action=True, action_history=action_history.copy(), cfg=cfg,
+                        sticky_gripper=sticky_gripper,
                     )
                     images_list = [process_raw_image_to_jpg(raw_img)] * batch_size
 

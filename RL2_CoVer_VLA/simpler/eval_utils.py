@@ -168,19 +168,50 @@ class StickyGripper:
         self.repeat = 0
         self.held_action = 0.0
 
-    def __call__(self, relative_gripper_action: float) -> float:
+    @staticmethod
+    def _step(state, relative_gripper_action: float, num_repeat: int):
+        """One transition of the sticky state machine. Pure: returns (new_state, command).
+
+        Factored out so ``__call__`` (which advances the real gripper) and ``simulate``
+        (which previews a candidate chunk) share one implementation.
+        """
+        is_on, repeat, held_action = state
         relative_gripper_action = float(relative_gripper_action)
-        if abs(relative_gripper_action) > 0.5 and self.is_on is False:
-            self.is_on = True
-            self.held_action = relative_gripper_action
-        if self.is_on:
-            self.repeat += 1
-            relative_gripper_action = self.held_action
-        if self.repeat == self.num_repeat:
-            self.is_on = False
-            self.repeat = 0
-            self.held_action = 0.0
-        return relative_gripper_action
+        if abs(relative_gripper_action) > 0.5 and is_on is False:
+            is_on = True
+            held_action = relative_gripper_action
+        if is_on:
+            repeat += 1
+            relative_gripper_action = held_action
+        if repeat == num_repeat:
+            is_on = False
+            repeat = 0
+            held_action = 0.0
+        return (is_on, repeat, held_action), relative_gripper_action
+
+    def __call__(self, relative_gripper_action: float) -> float:
+        state, cmd = self._step(
+            (self.is_on, self.repeat, self.held_action),
+            relative_gripper_action,
+            self.num_repeat,
+        )
+        self.is_on, self.repeat, self.held_action = state
+        return cmd
+
+    def simulate(self, relative_gripper_actions) -> list:
+        """Roll this gripper's state forward over a sequence WITHOUT mutating it.
+
+        Returns the commands that would actually be issued. A hold lasts ``num_repeat``
+        control steps, so within one action chunk the policy's requested gripper changes
+        are frequently overridden; this lets the verifier be shown what will really
+        happen instead of the policy's raw per-step intent.
+        """
+        state = (self.is_on, self.repeat, self.held_action)
+        cmds = []
+        for rel in relative_gripper_actions:
+            state, cmd = self._step(state, rel, self.num_repeat)
+            cmds.append(cmd)
+        return cmds
 
 
 def create_simpler_adapter_wrapper(embodiment="widowx", action_ensemble_temp=-0.8):
@@ -323,7 +354,7 @@ def convert_maniskill_with_bridge_adapter(action, verifier_action=False, action_
 
 
 def process_inputs(batch_size, predefined_action_queue, verifier_action=False, 
-                   action_history=[], cfg=None):
+                   action_history=[], cfg=None, sticky_gripper=None):
     """Process action queue into format suitable for verifier model.
     
     Converts raw actions from policy into trajectories that include both past actions 
@@ -335,6 +366,12 @@ def process_inputs(batch_size, predefined_action_queue, verifier_action=False,
         verifier_action: Whether to use verifier-specific action preprocessing
         action_history: List of past executed actions
         cfg: Configuration object containing n_action_steps
+        sticky_gripper: live ``StickyGripper`` (Google Robot only). When supplied together
+            with ``verifier_action=True``, each candidate's future gripper column is rolled
+            forward through a copy of the sticky state, so it carries the command that will
+            actually execute. This matches the past half of the window (which records the
+            executed state) and the verifier's rel2abs training labels. Ignored for the
+            execution-format call, which must keep its current semantics.
         
     Returns:
         list: List of action trajectories, one per batch item (batch_size, timesteps, 7)
@@ -360,6 +397,32 @@ def process_inputs(batch_size, predefined_action_queue, verifier_action=False,
         processed_batch = processed_batch.reshape(batch_size, 7)
         processed_future_actions_batch.append(processed_batch)
     
+    # Google Robot: the sticky gripper holds a command for ~num_repeat control steps, so the
+    # gripper actually executed over this chunk is not the policy's raw per-step intent.
+    # Without this, the verifier's window has a frozen executed past spliced onto an
+    # unconstrained-intent future -- a transition at the current index that cannot physically
+    # happen, and a pattern absent from the rel2abs training distribution.
+    if verifier_action and sticky_gripper is not None:
+        raw_future = np.stack(
+            [predefined_action_queue[i].cpu().numpy() for i in range(cfg.n_action_steps)]
+        )  # (n_action_steps, batch_size, 7)
+        # Seed the carried absolute state from the last executed step (1 open, 0 closed).
+        prev_state = float(action_history[-1][-1]) if len(action_history) > 0 else 1.0
+        for batch_idx in range(batch_size):
+            # Raw policy output is absolute openness in [0, 1]; simpler's relative command is
+            # -((a*2)-1)  (-1 open, +1 close), the same sign convention as fractal's
+            # gripper_closedness_action that rel2abs thresholds at +-0.1.
+            rels = [-((float(raw_future[i, batch_idx, 6]) * 2.0) - 1.0)
+                    for i in range(cfg.n_action_steps)]
+            state = prev_state
+            for i, cmd in enumerate(sticky_gripper.simulate(rels)):
+                if cmd < -0.1:
+                    state = 1.0     # opening -> open
+                elif cmd > 0.1:
+                    state = 0.0     # closing -> closed
+                # otherwise no commanded change: carry the previous state
+                processed_future_actions_batch[i][batch_idx, -1] = state
+
     # Combine past and future actions
     num_past = min(len(action_history), 6)
     future_actions = np.stack(processed_future_actions_batch)  # (n_action_steps, batch_size, 7)
