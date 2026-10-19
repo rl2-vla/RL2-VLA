@@ -353,8 +353,39 @@ def convert_maniskill_with_bridge_adapter(action, verifier_action=False, action_
         return execution_action[0]
 
 
-def process_inputs(batch_size, predefined_action_queue, verifier_action=False, 
-                   action_history=[], cfg=None, sticky_gripper=None):
+def vote_gripper(group_grippers, own_gripper: float) -> float:
+    """Step-0 gripper command the eval loop executes for a selected candidate.
+
+    Majority vote over the candidate's language group of execution-format (relative,
+    -1 open / +1 close) grippers, counting >= 0 as close; a tie falls back to the
+    candidate's own sign. Shared by the eval loop and ``process_inputs`` so the verifier
+    is scored on exactly the gripper that will run.
+    """
+    group_grippers = np.asarray(group_grippers)
+    close_votes = int((group_grippers >= 0).sum())
+    open_votes = int((group_grippers < 0).sum())
+    if close_votes > open_votes:
+        return 1.0
+    if open_votes > close_votes:
+        return -1.0
+    return 1.0 if own_gripper >= 0 else -1.0
+
+
+def gripper_cmd_to_state(cmd: float, prev_state: float) -> float:
+    """Executed relative gripper command -> absolute state (1 open, 0 closed).
+
+    Same +-0.1 thresholds as the fractal verifier's rel2abs training labels; a command in
+    between keeps the previous state.
+    """
+    if cmd < -0.1:
+        return 1.0
+    if cmd > 0.1:
+        return 0.0
+    return prev_state
+
+
+def process_inputs(batch_size, predefined_action_queue, verifier_action=False,
+                   action_history=[], cfg=None, sticky_gripper=None, vote_group_size=1):
     """Process action queue into format suitable for verifier model.
     
     Converts raw actions from policy into trajectories that include both past actions 
@@ -372,12 +403,19 @@ def process_inputs(batch_size, predefined_action_queue, verifier_action=False,
             actually execute. This matches the past half of the window (which records the
             executed state) and the verifier's rel2abs training labels. Ignored for the
             execution-format call, which must keep its current semantics.
-        
+        vote_group_size: candidates per language group (``policy_batch_inference_size``).
+            Step 0 of the executed chunk uses the group's gripper vote (``vote_gripper``)
+            rather than the candidate's own gripper, so the simulation does the same.
+
     Returns:
         list: List of action trajectories, one per batch item (batch_size, timesteps, 7)
     """
     processed_future_actions_batch = []
     embodiment = getattr(cfg, "embodiment", "widowx")
+    simulate_sticky = verifier_action and sticky_gripper is not None
+    # Execution-format (relative, -1 open / +1 close) gripper per (step, candidate): the exact
+    # values the eval loop feeds to the sticky gripper if that candidate is selected
+    exec_grippers = np.zeros((cfg.n_action_steps, batch_size)) if simulate_sticky else None
 
     # Process each future timestep
     for i in range(cfg.n_action_steps):
@@ -392,35 +430,32 @@ def process_inputs(batch_size, predefined_action_queue, verifier_action=False,
             )
             processed_execution_1x7 = np.asarray(processed_execution_1x7)
             processed_execution_actions_for_step.append(processed_execution_1x7)
+            if simulate_sticky:
+                exec_grippers[i, batch_idx] = convert_maniskill_with_bridge_adapter(
+                    sample_1x7, verifier_action=False, action_ensemble_temp=-0.8,
+                    embodiment=embodiment,
+                )[-1]
 
         processed_batch = np.vstack(processed_execution_actions_for_step)
         processed_batch = processed_batch.reshape(batch_size, 7)
         processed_future_actions_batch.append(processed_batch)
-    
+
     # Google Robot: the sticky gripper holds a command for ~num_repeat control steps, so the
     # gripper actually executed over this chunk is not the policy's raw per-step intent.
     # Without this, the verifier's window has a frozen executed past spliced onto an
     # unconstrained-intent future -- a transition at the current index that cannot physically
     # happen, and a pattern absent from the rel2abs training distribution.
-    if verifier_action and sticky_gripper is not None:
-        raw_future = np.stack(
-            [predefined_action_queue[i].cpu().numpy() for i in range(cfg.n_action_steps)]
-        )  # (n_action_steps, batch_size, 7)
+    if simulate_sticky:
         # Seed the carried absolute state from the last executed step (1 open, 0 closed).
         prev_state = float(action_history[-1][-1]) if len(action_history) > 0 else 1.0
         for batch_idx in range(batch_size):
-            # Raw policy output is absolute openness in [0, 1]; simpler's relative command is
-            # -((a*2)-1)  (-1 open, +1 close), the same sign convention as fractal's
-            # gripper_closedness_action that rel2abs thresholds at +-0.1.
-            rels = [-((float(raw_future[i, batch_idx, 6]) * 2.0) - 1.0)
-                    for i in range(cfg.n_action_steps)]
+            rels = list(exec_grippers[:, batch_idx])
+            # Step 0 executes the language group's vote, not the candidate's own gripper
+            group_start = (batch_idx // vote_group_size) * vote_group_size
+            rels[0] = vote_gripper(exec_grippers[0, group_start:group_start + vote_group_size], rels[0])
             state = prev_state
             for i, cmd in enumerate(sticky_gripper.simulate(rels)):
-                if cmd < -0.1:
-                    state = 1.0     # opening -> open
-                elif cmd > 0.1:
-                    state = 0.0     # closing -> closed
-                # otherwise no commanded change: carry the previous state
+                state = gripper_cmd_to_state(cmd, state)
                 processed_future_actions_batch[i][batch_idx, -1] = state
 
     # Combine past and future actions

@@ -37,6 +37,7 @@ from eval_utils import (
     create_simpler_adapter_wrapper,
     get_simpler_dummy_action,
     get_simpler_env,
+    gripper_cmd_to_state,
     load_pi0_policy_compat,
     load_rephrases,
     process_inputs,
@@ -44,6 +45,7 @@ from eval_utils import (
     save_episode_data_openpi,
     save_rollout_video_openpi,
     set_seed_everywhere,
+    vote_gripper,
 )
 from rl2_utils import (
     QAMInference,
@@ -113,7 +115,7 @@ class GenerateConfig:
     lang_rephrase_num_prefail: int = 1
     lang_rephrase_num: int = 1
 
-    log_misc_episode_data_openpi: bool = False     # Set to False if collecting SAFE data
+    log_misc_episode_data_openpi: bool = True     # Set to False if collecting SAFE data
     log_safe_training_data: bool = False
     save_3d_html_viz: bool = False
 
@@ -576,7 +578,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     action_histories_list = process_inputs(
                         batch_size, predefined_action_queue, 
                         verifier_action=True, action_history=action_history.copy(), cfg=cfg,
-                        sticky_gripper=sticky_gripper,
+                        sticky_gripper=sticky_gripper, vote_group_size=policy_batch_inference_size,
                     )
                     images_list = [process_raw_image_to_jpg(raw_img)] * batch_size
 
@@ -621,20 +623,9 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     group_end = group_start + policy_batch_inference_size
                     stacked_histories = np.stack(execution_action_histories_list[group_start:group_end])
                     grippers = stacked_histories[:, num_past, -1]
-                    
-                    # Count votes: >= 0 is closed, < 0 is open
-                    close_votes = int((grippers >= 0).sum())
-                    open_votes = int((grippers < 0).sum())
-
-                    if close_votes > open_votes:
-                        execute_action[-1] = 1.0
-                    elif open_votes > close_votes:
-                        execute_action[-1] = -1.0
-                    else:
-                        # Tie: use selected action's sign
-                        execute_action[-1] = 1.0 if execute_action[-1] >= 0 else -1.0
-
-                    execute_action[-1] = float(np.sign(execute_action[-1]))
+                    # >= 0 is closed, < 0 is open; tie -> selected action's sign. Shared with
+                    # process_inputs so the verifier scored this exact step-0 gripper
+                    execute_action[-1] = vote_gripper(grippers, execute_action[-1])
                     
                     # Extract remaining actions from selected batch item
                     selected_action_chunk = deque()
@@ -722,7 +713,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     if cfg.use_verifier:
                         cmd = execute_action[-1]  # simpler: -1 open, +1 close
                         prev_open = action_history[-2][-1] if len(action_history) > 1 else 1.0
-                        action_history[-1][-1] = 1.0 if cmd < -0.1 else 0.0 if cmd > 0.1 else prev_open
+                        action_history[-1][-1] = gripper_cmd_to_state(cmd, prev_open)
 
                 # Execute action in environment
                 obs, reward, done, trunc, info = env.step(execute_action)
