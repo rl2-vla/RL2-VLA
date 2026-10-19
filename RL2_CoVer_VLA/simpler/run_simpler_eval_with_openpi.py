@@ -13,6 +13,7 @@ For paper: "RL2-VLA: Adaptive RL Latent Compositional Steering with Test-Time Sc
 
 import itertools
 import os
+import re
 import sys
 import time
 from collections import deque
@@ -380,6 +381,13 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                 print(f"\033[91m{warn_msg}\033[0m")
                 log_file.write(f"{warn_msg}\n")
 
+        # VLS output folder for this task: the VLM prompt, lowercased, punctuation
+        # stripped, words joined by "_" (e.g. "arrange_the_eggplant_neatly_in_the_y").
+        vls_task_dirname = (
+            re.sub(r"[^a-z0-9]+", "_", vls_instruction.lower()).strip("_")[:40].strip("_")
+            if vls_instruction else None
+        )
+
         # Run episodes for this task
         task_episodes, task_successes = 0, 0
         for eps_idx in tqdm.tqdm(range(cfg.num_trials_per_task)):
@@ -481,8 +489,10 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                         # VLM audit trail (query_img.png / prompt.txt /
                         # output_raw.txt / metadata.json / stage*_guidance.txt)
                         # is inspectable per episode.
+                        # Keyed by vls_instruction (the exact prompt the guidance and stage VLMs get),
+                        # not task_description, which is overwritten mid-episode by the executed prompt.
                         vls_episode_dir = os.path.join(
-                            cfg.local_log_dir, run_id, "vls", f"{task_description[:40]}",
+                            cfg.local_log_dir, run_id, "vls", vls_task_dirname,
                             f"episode_{eps_idx + 1}",
                         )
                         vls.begin_episode(vls_instruction, episode_dir=vls_episode_dir)
@@ -983,7 +993,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                 try:
                     vls.recorder.save_video(
                         save_path=os.path.join(
-                            cfg.local_log_dir, run_id, "vls",
+                            cfg.local_log_dir, run_id, "vls", vls_task_dirname,
                             f"episode_{eps_idx + 1}_{'success' if done else 'fail'}",
                         ),
                         success=bool(done),
