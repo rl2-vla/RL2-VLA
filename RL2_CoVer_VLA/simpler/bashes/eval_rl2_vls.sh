@@ -52,6 +52,10 @@ VLS_USE_DIVERSITY=True
 VLS_USE_FKD=True                # Feynman-Kac particle resampling (needs >1)
 VLS_VLM_QUERY_LIMIT=50          # cap on live stage-recognition calls per episode
 VLS_USE_VLM_STAGE_RECOGNITION=True
+# Gemini model for live stage recognition (vls/runtime.py reads this env var;
+# its default is gemini-3-flash-preview, matching upstream VLS).
+# other options: gemini-3.5-flash-lite
+# export VLS_GEMINI_MODEL="gemini-3.5-flash-lite"
 
 # Guidance cache: a past experiments folder (e.g. ./experiments_cache_test),
 # searched recursively for each episode's
