@@ -26,8 +26,10 @@ Two upstream behaviors deliberately preserved:
   than propagating.
 """
 
+import glob
 import json
 import os
+import shutil
 import traceback
 from typing import Callable, Dict, List, Optional
 
@@ -158,50 +160,36 @@ class VLSSteeringController:
 
     def _resolve_guidance(self, instruction, keypoints, kp_to_object,
                           projected_img, episode_dir) -> Optional[str]:
-        """Cached guidance directory, or synthesize a fresh one via the VLM.
+        """Cached guidance for this episode, or synthesize a fresh one via the VLM.
 
-        Upstream VLS has no task lookup here: `cached_functions_dir` is a single
-        path (main.py:343-347). That is safe there only because `run_main.sh`
-        invokes one task suite per run, so a given directory holds exactly one
-        task's guidance. Our eval script loops over several suites in one run,
-        so the same convention has to be made explicit: we look for a
-        per-task subdirectory under `guidance_dir` and fall back to the bare
-        path. Reusing one task's guidance on another would silently target
-        keypoint indices belonging to different objects.
+        guidance_dir: read-only cache root (e.g. a past experiments folder),
+            searched recursively for .../vls/<prompt>/episode_N/vlm_agent.
+        episode_dir: THIS run's <run>/vls/<prompt>/episode_N; its last two
+            parts are the lookup key, and the guidance used is written here.
+
+        Upstream VLS (main.py:343-347) replays ONE flat `cached_functions_dir`
+        for every episode. Here the cache is per episode instead: episode N's
+        scene is fixed across runs (reset seeds come from count(1000), not
+        cfg.seed), so its cached guidance is the closest match available. A
+        hit is copied into episode_dir, so this run is itself a complete cache
+        for the next one. A miss falls through to synthesis.
         """
-        if self.guidance_dir:
-            candidates = []
-            if self.task_key:
-                candidates.append(os.path.join(self.guidance_dir, self.task_key))
-            candidates.append(self.guidance_dir)
-
-            for path in candidates:
-                if os.path.exists(os.path.join(path, "metadata.json")):
-                    log.info(f"Using cached guidance functions from {path}")
-                    return path
-
-            log.error(
-                f"No cached guidance (metadata.json) found under "
-                f"{' or '.join(candidates)}; run once with an empty "
-                f"vls_guidance_dir to populate it."
-            )
-            return None
+        if self.guidance_dir and episode_dir:
+            cached = self._find_cached_guidance(episode_dir, kp_to_object)
+            if cached is not None:
+                task_dir = os.path.join(episode_dir, "vlm_agent")
+                shutil.copytree(cached, task_dir, dirs_exist_ok=True)
+                log.info(f"Using cached guidance functions from {cached}")
+                return task_dir
 
         if self.vlm_agent is None:
-            log.error("No guidance_dir and no VLM agent configured")
+            log.error("No cached guidance and no VLM agent configured")
             return None
 
         # VLMAgent.generate_guidance() writes query_img.png / prompt.txt /
         # output_raw.txt / metadata.json / stage*_guidance.txt into task_dir, and
         # has no default for it, so always set one.
-        #
-        # If the caller asked for caching but the cache was empty, write the
-        # freshly generated set into the task-scoped cache slot so a later run
-        # with the same vls_guidance_dir replays it offline.
-        if self.guidance_dir and self.task_key:
-            task_dir = os.path.join(self.guidance_dir, self.task_key)
-        else:
-            task_dir = os.path.join(episode_dir or self.default_output_dir, "vlm_agent")
+        task_dir = os.path.join(episode_dir or self.default_output_dir, "vlm_agent")
         self.vlm_agent.task_dir = task_dir
         os.makedirs(task_dir, exist_ok=True)
 
@@ -212,6 +200,37 @@ class VLSSteeringController:
         }
         log.info(f"[Guidance VLM] instruction: \"{instruction}\"")
         return self.vlm_agent.generate_guidance(projected_img, instruction, metadata)
+
+    def _find_cached_guidance(self, episode_dir, kp_to_object) -> Optional[str]:
+        """Search guidance_dir recursively for .../vls/<prompt>/episode_N/vlm_agent.
+
+        <prompt>/episode_N mirror this run's episode_dir, so a cache is only hit
+        for the same VLM prompt (which also pins the task). The newest match
+        wins.
+        """
+        prompt_dir, episode = os.path.normpath(episode_dir).split(os.sep)[-2:]
+        pattern = os.path.join(
+            glob.escape(self.guidance_dir), "**", "vls", prompt_dir, episode,
+            "vlm_agent", "metadata.json",
+        )
+        hits = glob.glob(pattern, recursive=True)
+        if not hits:
+            log.warning(f"No cached guidance for {prompt_dir}/{episode} under "
+                        f"{self.guidance_dir}; synthesizing")
+            return None
+
+        meta_path = max(hits, key=os.path.getmtime)
+        with open(meta_path) as f:
+            cached_map = json.load(f).get("key_points_objects_map")
+        log.info(f"Found cached guidance {meta_path} ({len(hits)} match(es)); "
+                 f"cached keypoint map: {cached_map}")
+        # Warn-only, matching upstream (which never compares keypoints): detection
+        # draws on the global numpy/torch RNGs (kmeans init, pca_lowrank), so it
+        # need not reproduce the cached keypoints even for the same scene.
+        if cached_map != {str(k): v for k, v in kp_to_object.items()}:
+            log.warning(f"Cached keypoint map differs from this episode's "
+                        f"{kp_to_object}; using the cache anyway")
+        return os.path.dirname(meta_path)
 
     def _load_guidance(self, guidance_dir: str):
         """Load per-stage guidance functions. num_stages comes from metadata.json."""

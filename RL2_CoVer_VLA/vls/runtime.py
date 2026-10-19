@@ -103,37 +103,37 @@ def build_vls(env, cfg, pi0_policy, task_key: Optional[str] = None):
     tracker = KeypointTracker(adapter)
     sampler = GuidedSampler(pi0_policy, adapter, cfg)
 
-    vlm_agent = None
     stage_recognizer = None
     # Convert empty string or string "None" to Python None
     guidance_dir = cfg.vls_guidance_dir
     if not guidance_dir or guidance_dir == "None":
         guidance_dir = None
 
-    if guidance_dir is None:
-        # Only needed when synthesizing guidance; cached mode is fully offline.
-        from vls.vlm_query.vlm_agent import VLMAgent
+    # Built even with a cache, as upstream does: a cache miss falls through to
+    # synthesis, and stage descriptions for the stage VLM are parsed from the
+    # cached output_raw.txt via VLMAgent. Construction makes no API call.
+    from vls.vlm_query.vlm_agent import VLMAgent
 
-        # Matches VLS's live config (configs/perception.yaml:24-30), which is
-        # what a `bash run_main.sh` run actually loads. Note the ablation YAMLs
-        # say gpt-5.2-chat, but those are not the runtime path.
-        # gpt-4o is NOT a substitute: it ignored the prompt's output contract
-        # and returned a plain image caption with no stages or code, which
-        # _parse_other_metadata rejects with "num_stages not found in output".
-        # env_type="simpler" selects guidance_template_simpler.txt as the
-        # task-specific insert; guidance_template.txt is the shared base that
-        # carries the output contract (num_stages, function format). Both are
-        # required -- without the base, the prompt degrades to a 43-byte stub
-        # and the VLM returns prose that _parse_other_metadata rejects.
-        vlm_agent = VLMAgent(
-            {
-                "model": os.environ.get("VLS_OPENAI_MODEL", "gpt-5.1"),
-                "temperature": 1.0,
-                "max_completion_tokens": 2000,
-                "query_template_dir": str(PKG_ROOT / "vls/vlm_query"),
-            },
-            env_type="simpler",
-        )
+    # Matches VLS's live config (configs/perception.yaml:24-30), which is
+    # what a `bash run_main.sh` run actually loads. Note the ablation YAMLs
+    # say gpt-5.2-chat, but those are not the runtime path.
+    # gpt-4o is NOT a substitute: it ignored the prompt's output contract
+    # and returned a plain image caption with no stages or code, which
+    # _parse_other_metadata rejects with "num_stages not found in output".
+    # env_type="simpler" selects guidance_template_simpler.txt as the
+    # task-specific insert; guidance_template.txt is the shared base that
+    # carries the output contract (num_stages, function format). Both are
+    # required -- without the base, the prompt degrades to a 43-byte stub
+    # and the VLM returns prose that _parse_other_metadata rejects.
+    vlm_agent = VLMAgent(
+        {
+            "model": os.environ.get("VLS_OPENAI_MODEL", "gpt-5.1"),
+            "temperature": 1.0,
+            "max_completion_tokens": 2000,
+            "query_template_dir": str(PKG_ROOT / "vls/vlm_query"),
+        },
+        env_type="simpler",
+    )
 
     if cfg.vls_use_vlm_stage_recognition:
         try:

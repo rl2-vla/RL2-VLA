@@ -53,19 +53,18 @@ VLS_USE_FKD=True                # Feynman-Kac particle resampling (needs >1)
 VLS_VLM_QUERY_LIMIT=50          # cap on live stage-recognition calls per episode
 VLS_USE_VLM_STAGE_RECOGNITION=True
 
-# Guidance cache. Guidance functions reference KEYPOINT INDICES, which are only
-# meaningful for the task they were generated on, so the cache is per task:
+# Guidance cache: a past experiments folder (e.g. ./experiments_cache_test),
+# searched recursively for each episode's
 #
-#   <VLS_GUIDANCE_DIR>/<task_suite_name>/{metadata.json, stage*_guidance.txt, ...}
+#   .../vls/<vlm_prompt_slug>/episode_N/vlm_agent/{metadata.json, stage*_guidance.txt, ...}
 #
-# Upstream VLS has no task lookup (main.py:343-347 takes a single
-# cached_functions_dir) because run_main.sh runs ONE suite per invocation. This
-# script loops over several, so the per-task slot is resolved explicitly.
-#
-# Set it and the first run synthesises + saves per task; later runs replay
-# offline, deterministically and for free. Leave empty to regenerate every
-# episode (upstream's default), which costs one OpenAI call per episode --
-# at 50 trials x 4 tasks x 3 seeds that is 600 calls.
+# Per episode because guidance references KEYPOINT INDICES of that episode's
+# scene, which is fixed across runs and seeds. A hit skips the OpenAI guidance
+# call (Gemini stage recognition still runs live); a miss synthesises fresh. A
+# cached keypoint map that differs from this episode's only warns. Either way the
+# guidance used is saved under this run, so it can serve as the next cache.
+# Leave empty to synthesise every episode (upstream's default).
+# e.g. /home/user/Documents/RL2-VLA/RL2_CoVer_VLA/simpler/bashes/experiments_cache_test
 VLS_GUIDANCE_DIR=""
 
 # Visualisation. Writes episode_N_{success,fail}_<camera>.mp4 with the sampled
