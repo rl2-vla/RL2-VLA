@@ -821,7 +821,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
             if cfg.log_misc_episode_data_openpi:
                 save_episode_data_openpi(
                     episode_data, total_episodes, success=done,
-                    task_description=original_task_description,
+                    task_description=curr_task,     # suite/task name: the env instruction is only the first stage for multi-stage tasks
                     transformation_type=cfg.lang_transform_type,
                     lang_rephrase_num=cfg.lang_rephrase_num,
                     policy_batch_inference_size=policy_batch_inference_size,
