@@ -303,11 +303,17 @@ def eval_simpler(cfg: GenerateConfig) -> None:
         # Run episodes for this task
         task_episodes, task_successes = 0, 0
         for eps_idx in tqdm.tqdm(range(cfg.num_trials_per_task)):
+            # Every episode starts at the first-stage env instruction; multi-stage tasks (e.g. apple in drawer)
+            # may have swapped task_description / rephrased_list to a later stage in the previous episode
+            env_instruction = original_task_description
             if matching_task_id is not None and cfg.lang_transform_type == "rephrase":
                 task_description = ([preloaded_rephrases[matching_task_id]["original"]] + preloaded_rephrases[matching_task_id]["ert_rephrases"])[0]
+                rephrased_list = preloaded_rephrases[matching_task_id]["ert_rephrases"][:max(cfg.lang_rephrase_num, cfg.lang_rephrase_num_prefail)]
+                if cfg.log_misc_episode_data_openpi:
+                    log_file.write(f"Rephrases at episode start ({env_instruction!r}): {rephrased_list}\n")
             elif cfg.lang_transform_type == "no_transform":
                 task_description = original_task_description
-            
+
             print(f"\nTask: {task_description}")
             log_file.write(f"\nTask: {task_description}\n")
             
@@ -715,15 +721,6 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                 # Execute action in environment
                 obs, reward, done, trunc, info = env.step(execute_action)
 
-                # Google Robot: long-horizon tasks (e.g. place-apple-in-drawer)
-                # switch the instruction mid-episode
-                # NOTE: Disabled - it compared against task_description (the rephrased/selected prompt), so it
-                # overwrote it with the original env instruction after every step.
-                # if is_google_robot:
-                #     new_instr = env.get_language_instruction()
-                #     if new_instr != task_description:
-                #         task_description = new_instr
-
                 # Log at inference-step boundaries, matching open-pi-zero format
                 if t % eff_act_steps == 0 and cfg.log_safe_training_data:
                     sampled_actions_np        = torch.stack(predefined_action_queue, dim=1).cpu().float().numpy()
@@ -754,6 +751,26 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     task_successes += 1
                     total_successes += 1
                     break
+
+                # Google Robot: long-horizon tasks (e.g. place-apple-in-drawer) switch the env instruction
+                # mid-episode. Compare against the previous env instruction (not task_description, which holds
+                # the rephrased / verifier-selected prompt), then swap in the next stage's prompts. Done after the
+                # SAFE log so that entry keeps the prompt actually used for this step.
+                if is_google_robot:
+                    new_env_instruction = env.get_language_instruction()
+                    if new_env_instruction != env_instruction:
+                        env_instruction = new_env_instruction
+                        if matching_task_id is not None and cfg.lang_transform_type == "rephrase":
+                            if env_instruction not in preloaded_rephrases:
+                                raise ValueError(f"No preloaded rephrases found for task: {env_instruction}")
+                            task_description = preloaded_rephrases[env_instruction]["original"]
+                            rephrased_list = preloaded_rephrases[env_instruction]["ert_rephrases"][:max(cfg.lang_rephrase_num, cfg.lang_rephrase_num_prefail)]
+                            if cfg.log_misc_episode_data_openpi:
+                                log_file.write(f"Rephrases after switch at t={t} ({env_instruction!r}): {rephrased_list}\n")
+                        elif cfg.lang_transform_type == "no_transform":
+                            task_description = env_instruction
+                        print(f"\nInstruction switched at t={t}: {env_instruction!r} -> prompt {task_description!r}")
+                        log_file.write(f"Instruction switched at t={t}: {env_instruction!r} -> prompt {task_description!r}\n")
 
                 t += 1
                 

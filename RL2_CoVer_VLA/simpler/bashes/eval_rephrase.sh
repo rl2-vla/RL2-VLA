@@ -47,7 +47,7 @@ FRACTAL_CHECKPOINT="HaomingSong/lerobot-pi0-fractal"        # lerobot-format Pi0
 
 # CoVer verifier checkpoints per embodiment
 BRIDGE_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_bridge.pt"                                                     # CoVer verifier trained on Bridge-V2
-FRACTAL_VERIFIER_CKPT="/home/coder/hdd/cover_verifier_training/fractal/checkpoints/converged/fractal_siglip_resume_step_63360_converged.pt"    # CoVer verifier trained on fractal (Google Robot)
+FRACTAL_VERIFIER_CKPT="/home/coder/hdd/cover_verifier_training/fractal/checkpoints/SAVED/cover_verifier_fractal_ensemble_step_200640_211200_221760.pt"    # CoVer verifier trained on fractal (Google Robot)
 
 if [[ "$EMBODIMENT" == "google_robot" ]]; then
     PRETRAINED_CHECKPOINT="$FRACTAL_CHECKPOINT"

@@ -162,6 +162,29 @@
       "random_rephrases": "",
       "count": 15
     },
+    "place apple into top drawer": {
+      "original": "Stow the apple within the upper storage compartment",
+      "ert_rephrases": [
+        "Put the apple in the top drawer.",
+        "Place the apple inside the upper drawer.",
+        "Drop the apple into the open top drawer.",
+        "Set the red apple in the top drawer.",
+        "Put the fruit into the upper drawer.",
+        "Move the apple into the first drawer.",
+        "Place the red fruit in the top drawer.",
+        "Pick up the apple and put it in the top drawer.",
+        "Insert the apple into the upper compartment.",
+        "Lay the apple inside the opened top drawer.",
+        "Transfer the apple into the top drawer.",
+        "Put the apple inside the uppermost drawer.",
+        "Grab the apple and drop it in the upper drawer.",
+        "Place the fruit inside the first drawer.",
+        "Set the apple down in the top drawer."
+      ],
+      "rephrases_original": "place apple into top drawer",
+      "random_rephrases": "",
+      "count": 15
+    },
     "pick coke can": {
       "original": "Grasp the beverage container and raise it",
       "ert_rephrases": [
