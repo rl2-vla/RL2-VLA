@@ -84,12 +84,12 @@ else
     )
 fi
 
+# ==========================================================================
+# Rephrase
+# ==========================================================================
 for seed in "${SEEDS[@]}"; do
-    # ==========================================================================
-    # Rephrase
-    # ==========================================================================
     for task_suite in "${TASK_SUITES[@]}"; do
-        CUDA_VISIBLE_DEVICES=$GPU xvfb-run --auto-servernum -s "-screen 0 640x480x24" python ../run_simpler_eval_with_openpi.py \
+        CUDA_VISIBLE_DEVICES=$GPU python ../run_simpler_eval_with_openpi.py \
             --task_suite_name "$task_suite" \
             --lang_transform_type rephrase \
             --pretrained_checkpoint "$PRETRAINED_CHECKPOINT" \
@@ -99,6 +99,7 @@ for seed in "${SEEDS[@]}"; do
             --action_samples_prefail "$ACTION_SAMPLES_PREFAIL" \
             --composed_samples_prefail "$COMPOSED_SAMPLES_PREFAIL" \
             --use_verifier True \
+            --verifier_checkpoint "$VERIFIER_CKPT" \
             --critic cover \
             --seed "$seed" \
             --local_log_dir "$LOCAL_LOG_DIR" \
@@ -140,6 +141,7 @@ for seed in "${SEEDS[@]}"; do
     #         --action_samples_prefail 1 \
     #         --composed_samples_prefail 0 \
     #         --use_verifier True \
+    #         --verifier_checkpoint "$VERIFIER_CKPT" \
     #         --critic cover \
     #         --seed "$seed" \
     #         --local_log_dir "$LOCAL_LOG_DIR" \

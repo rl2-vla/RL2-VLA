@@ -19,6 +19,12 @@ COMPOSED_SAMPLES_PREFAIL=0
 LOCAL_LOG_DIR="./safe_rollouts"
 # LOCAL_LOG_DIR="/mnt/hdd/SAFE_ds/training_latents/rollouts"
 
+# Set to "IID" or "OOD" to select which task-suite type to evaluate.
+TASK_SUITE_TYPE="IID"
+
+# Embodiment: "widowx" (Bridge) or "google_robot" (fractal).
+EMBODIMENT="widowx"
+
 # ==========================================================================
 # Other config
 # ==========================================================================
@@ -35,23 +41,55 @@ INFERENCE_ROOT="$REPO_ROOT/CoVer_VLA"
 export PYTHONPATH="$REPO_ROOT:$INFERENCE_ROOT:$PYTHONPATH"
 export PRISMATIC_DATA_ROOT=.
 
-# HF pretrained checkpoint for INTACT Pi0 finetuned on Bridge-V2
-PRETRAINED_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"
+# Pretrained checkpoints per embodiment
+BRIDGE_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"       # INTACT Pi0 finetuned on Bridge-V2
+FRACTAL_CHECKPOINT="HaomingSong/lerobot-pi0-fractal"        # lerobot-format Pi0 finetuned on fractal (Google Robot)
 
-# Only collect rollouts for IID tasks
-TASK_SUITES=(
-    simpler_put_eggplant_in_basket
-    simpler_spoon_on_towel
-    simpler_stack_cube
-    simpler_carrot_on_plate
-)
+# CoVer verifier checkpoints per embodiment
+BRIDGE_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_bridge.pt"                                                     # CoVer verifier trained on Bridge-V2
+FRACTAL_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_fractal.pt"    # CoVer verifier trained on fractal (Google Robot)
+
+if [[ "$EMBODIMENT" == "google_robot" ]]; then
+    PRETRAINED_CHECKPOINT="$FRACTAL_CHECKPOINT"
+    VERIFIER_CKPT="$FRACTAL_VERIFIER_CKPT"
+    TASK_SUITES=(
+        simpler_google_open_top_drawer
+        simpler_google_open_middle_drawer
+        simpler_google_open_bottom_drawer
+        simpler_google_close_top_drawer
+        simpler_google_close_middle_drawer
+        simpler_google_close_bottom_drawer
+        simpler_google_apple_in_drawer
+        simpler_google_coke_horizontal
+        simpler_google_coke_vertical
+        simpler_google_coke_standing
+    )
+elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
+    PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
+    VERIFIER_CKPT="$BRIDGE_VERIFIER_CKPT"
+    TASK_SUITES=(
+        simpler_put_eggplant_in_basket
+        simpler_spoon_on_towel
+        simpler_stack_cube
+        simpler_carrot_on_plate
+    )
+else
+    PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
+    VERIFIER_CKPT="$BRIDGE_VERIFIER_CKPT"
+    TASK_SUITES=(
+        simpler_orange_juice_on_plate
+        simpler_spoon_on_towel_google
+        simpler_tape_measure_in_basket
+        simpler_toy_dinosaur_on_towel
+    )
+fi
 
 # ==========================================================================
 # Collect Rollouts for Safe Training
 # ==========================================================================
 for seed in "${SEEDS[@]}"; do
     for task_suite in "${TASK_SUITES[@]}"; do
-        CUDA_VISIBLE_DEVICES=$GPU python ../run_simpler_eval_with_openpi.py \
+        CUDA_VISIBLE_DEVICES=$GPU ../run_simpler_eval_with_openpi.py \
             --task_suite_name "$task_suite" \
             --lang_transform_type rephrase \
             --pretrained_checkpoint "$PRETRAINED_CHECKPOINT" \
@@ -61,10 +99,12 @@ for seed in "${SEEDS[@]}"; do
             --action_samples_prefail "$ACTION_SAMPLES_PREFAIL" \
             --composed_samples_prefail "$COMPOSED_SAMPLES_PREFAIL" \
             --use_verifier True \
+            --verifier_checkpoint "$VERIFIER_CKPT" \
             --critic cover \
             --seed "$seed" \
             --local_log_dir "$LOCAL_LOG_DIR" \
-            --wandb_project Rephrase-Safe-Collect   \
+            --wandb_project Rephrase-Safe-Collect \
             --log_safe_training_data True
     done
+
 done
