@@ -23,7 +23,7 @@ LOCAL_LOG_DIR="./experiments"
 TASK_SUITE_TYPE="IID"
 
 # Embodiment: "widowx" (Bridge) or "google_robot" (fractal).
-EMBODIMENT="google_robot"
+EMBODIMENT="widowx"
 
 # ==========================================================================
 # Other config
@@ -47,7 +47,7 @@ FRACTAL_CHECKPOINT="HaomingSong/lerobot-pi0-fractal"        # lerobot-format Pi0
 
 # CoVer verifier checkpoints per embodiment
 BRIDGE_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_bridge.pt"                                                     # CoVer verifier trained on Bridge-V2
-FRACTAL_VERIFIER_CKPT="/home/coder/hdd/cover_verifier_training/fractal/checkpoints/SAVED/cover_verifier_fractal_ensemble_step_200640_211200_221760.pt"    # CoVer verifier trained on fractal (Google Robot)
+FRACTAL_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_fractal.pt"    # CoVer verifier trained on fractal (Google Robot)
 
 if [[ "$EMBODIMENT" == "google_robot" ]]; then
     PRETRAINED_CHECKPOINT="$FRACTAL_CHECKPOINT"
@@ -88,22 +88,22 @@ for seed in "${SEEDS[@]}"; do
     # ==========================================================================
     # Rephrase
     # ==========================================================================
-    # for task_suite in "${TASK_SUITES[@]}"; do
-    #     CUDA_VISIBLE_DEVICES=$GPU python ../run_simpler_eval_with_openpi.py \
-    #         --task_suite_name "$task_suite" \
-    #         --lang_transform_type rephrase \
-    #         --pretrained_checkpoint "$PRETRAINED_CHECKPOINT" \
-    #         --num_trials_per_task "$NUM_TRIALS_PER_TASK" \
-    #         --use_failure_prediction False \
-    #         --lang_rephrase_num_prefail "$LANG_REPHRASE_NUM_PREFAIL" \
-    #         --action_samples_prefail "$ACTION_SAMPLES_PREFAIL" \
-    #         --composed_samples_prefail "$COMPOSED_SAMPLES_PREFAIL" \
-    #         --use_verifier True \
-    #         --critic cover \
-    #         --seed "$seed" \
-    #         --local_log_dir "$LOCAL_LOG_DIR" \
-    #         --wandb_project Rephrase
-    # done
+    for task_suite in "${TASK_SUITES[@]}"; do
+        CUDA_VISIBLE_DEVICES=$GPU xvfb-run --auto-servernum -s "-screen 0 640x480x24" python ../run_simpler_eval_with_openpi.py \
+            --task_suite_name "$task_suite" \
+            --lang_transform_type rephrase \
+            --pretrained_checkpoint "$PRETRAINED_CHECKPOINT" \
+            --num_trials_per_task "$NUM_TRIALS_PER_TASK" \
+            --use_failure_prediction False \
+            --lang_rephrase_num_prefail "$LANG_REPHRASE_NUM_PREFAIL" \
+            --action_samples_prefail "$ACTION_SAMPLES_PREFAIL" \
+            --composed_samples_prefail "$COMPOSED_SAMPLES_PREFAIL" \
+            --use_verifier True \
+            --critic cover \
+            --seed "$seed" \
+            --local_log_dir "$LOCAL_LOG_DIR" \
+            --wandb_project Rephrase
+    done
 
     # # ==========================================================================
     # # Vanilla
@@ -129,20 +129,20 @@ for seed in "${SEEDS[@]}"; do
     # # ==========================================================================
     # # Vanilla (Original prompt)
     # # ==========================================================================
-    for task_suite in "${TASK_SUITES[@]}"; do
-        CUDA_VISIBLE_DEVICES=$GPU python ../run_simpler_eval_with_openpi.py \
-            --task_suite_name "$task_suite" \
-            --lang_transform_type "no_transform" \
-            --pretrained_checkpoint "$PRETRAINED_CHECKPOINT" \
-            --num_trials_per_task "$NUM_TRIALS_PER_TASK" \
-            --use_failure_prediction False \
-            --lang_rephrase_num_prefail 1 \
-            --action_samples_prefail 1 \
-            --composed_samples_prefail 0 \
-            --use_verifier True \
-            --critic cover \
-            --seed "$seed" \
-            --local_log_dir "$LOCAL_LOG_DIR" \
-            --wandb_project Original
-    done
+    # for task_suite in "${TASK_SUITES[@]}"; do
+    #     CUDA_VISIBLE_DEVICES=$GPU python ../run_simpler_eval_with_openpi.py \
+    #         --task_suite_name "$task_suite" \
+    #         --lang_transform_type "no_transform" \
+    #         --pretrained_checkpoint "$PRETRAINED_CHECKPOINT" \
+    #         --num_trials_per_task "$NUM_TRIALS_PER_TASK" \
+    #         --use_failure_prediction False \
+    #         --lang_rephrase_num_prefail 1 \
+    #         --action_samples_prefail 1 \
+    #         --composed_samples_prefail 0 \
+    #         --use_verifier True \
+    #         --critic cover \
+    #         --seed "$seed" \
+    #         --local_log_dir "$LOCAL_LOG_DIR" \
+    #         --wandb_project Original
+    # done
 done

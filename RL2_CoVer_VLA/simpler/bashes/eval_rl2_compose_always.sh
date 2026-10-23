@@ -52,7 +52,7 @@ FRACTAL_QAM_CKPT="/home/coder/qam/exp/qam-reproduce/fractal_latents/fractal/qam_
 
 # CoVer verifier checkpoints per embodiment
 BRIDGE_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_bridge.pt"                                                     # CoVer verifier trained on Bridge-V2
-FRACTAL_VERIFIER_CKPT="/home/coder/hdd/cover_verifier_training/fractal/checkpoints/converged/fractal_siglip_resume_step_63360_converged.pt"    # CoVer verifier trained on fractal (Google Robot)
+FRACTAL_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_fractal.pt"    # CoVer verifier trained on fractal (Google Robot)
 
 if [[ "$EMBODIMENT" == "google_robot" ]]; then
     PRETRAINED_CHECKPOINT="$FRACTAL_CHECKPOINT"
