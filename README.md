@@ -78,6 +78,7 @@ cd -
 ```bash
 cd bridge_verifier
 hf download cover-vla/cover-vla-bridge cover_verifier_bridge.pt --local-dir .
+hf download rl2-vla/cover-vla-fractal cover_verifier_fractal.pt --local-dir .  # optional
 cd ..
 ```
 
