@@ -116,7 +116,7 @@ class GenerateConfig:
     warmup: bool = True                 # Pass in a MAX of pre/post-fail batch size at step 0 to avoid OOM Crash
 
     # QAM Params
-    merge_rel_weight: float = -1        # -1 means gaussian sampling of weights
+    merge_rel_weight: float = -1        # -1 means gaussian sampling of weights, -2 means sweep [0,0.25,0.5,0.75,1] per rephrase
     qam_ckpt: str = "third_party/qam/exp/SAVED/rl2-vla-qam-bridge/rl2_vla_qam_bridge_500k.pkl"
 
     # SAFE Params

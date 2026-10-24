@@ -308,10 +308,17 @@ def compute_composed_actions(cfg, task_description, rephrased_list, lang_rephras
         w = np.random.normal(loc=0.5, scale=0.25, size=batch_size)
         w = np.clip(w, 0, 1)             # shape = B,
         w = w[:, None, None]             # shape = B, 1, 1
+    # NOTE: If w == -2.0, each rephrase's samples sweep fixed weights (assumes composed_samples == 5)
+    elif w == -2.0:
+        w_sweep = np.array([0.0, 0.25, 0.5, 0.75, 1.0])
+        assert policy_batch_inference_size == len(w_sweep), f"merge_rel_weight=-2 requires {len(w_sweep)} samples per rephrase"
+        w = np.tile(w_sweep, lang_rephrase_num)  # shape = B, (rephrase-major)
+        w = w[:, None, None]             # shape = B, 1, 1
     # If  0 <= w <= 1, use fixed weights
     else:
         w = np.ones(batch_size) * w
         w = w[:, None, None]             # shape = B, 1, 1
+    print(f"[compose] w (per rephrase x sample): {w.reshape(lang_rephrase_num, -1).round(2).tolist()}")
 
     # Build unique instruction list
     if rephrased_list is not None and lang_rephrase_num > 1:
