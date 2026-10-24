@@ -1,0 +1,124 @@
+#!/bin/bash
+# NOTE: Activate the environment first (from repo root):
+export SAPIEN_EGL_ENV=1
+export MUJOCO_GL="egl"
+
+export LD_LIBRARY_PATH=/home/coder/cover-vla/nvidia_libs:$LD_LIBRARY_PATH
+export VK_ICD_FILENAMES=~/.vulkan/icd.d/nvidia_icd.json
+
+# ==========================================================================
+# Eval config (TODO: Change here)
+# ==========================================================================
+GPU=0
+SEEDS=(42 0 7)
+NUM_TRIALS_PER_TASK=50
+
+# Action sampling for all states
+# 1x action sample for latents extraction
+LANG_REPHRASE_NUM_PREFAIL=8
+ACTION_SAMPLES_PREFAIL=1
+COMPOSED_SAMPLES_PREFAIL=5
+
+# Weight of Pi0 vs QAM in composition: 0.0 = QAM only, 1.0 = Pi0 only, -1 = sample w ~ N(0.5, 0.25)
+MERGE_REL_WEIGHT=0.0
+
+# Log Directory
+LOCAL_LOG_DIR="./experiments"
+# LOCAL_LOG_DIR="/mnt/hdd/SAFE_ds/training_latents/rollouts"
+
+# Set to "IID" or "OOD" to select which task-suite type to evaluate.
+TASK_SUITE_TYPE="IID"
+
+# Embodiment: "widowx" (Bridge) or "google_robot" (fractal).
+EMBODIMENT="google_robot"
+
+# ==========================================================================
+# Other config
+# ==========================================================================
+
+# Set the base directory to the script location
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Set environment variables
+# Add repo root so bridge_verifier can be imported (go up 3 levels to cover-vla root)
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+# Add CoVer_VLA root so robot_utils can be imported
+INFERENCE_ROOT="$REPO_ROOT/CoVer_VLA"
+export PYTHONPATH="$REPO_ROOT:$INFERENCE_ROOT:$PYTHONPATH"
+export PRISMATIC_DATA_ROOT=.
+
+# Pretrained checkpoints per embodiment
+BRIDGE_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"       # INTACT Pi0 finetuned on Bridge-V2
+FRACTAL_CHECKPOINT="HaomingSong/lerobot-pi0-fractal"        # lerobot-format Pi0 finetuned on fractal (Google Robot)
+
+# QAM checkpoints per embodiment (flags.json must sit next to the .pkl)
+BRIDGE_QAM_CKPT="$REPO_ROOT/third_party/qam/exp/SAVED/rl2-vla-qam-bridge/rl2_vla_qam_bridge_500k.pkl"                          # QAM trained on Bridge-V2
+FRACTAL_QAM_CKPT="/home/coder/hdd/qam_ds/pi0_fractal/[Haomingsong_Pi0_FRACTAL_DATASET_normal_norm_diff_0_horz_mean_inv_temp_0.0_BC_nonempty_tasks_latents_SEED42_train_SEED10001]_qam_20260918_184842/params_500000.pkl"              # QAM trained on fractal (Google Robot)
+
+# CoVer verifier checkpoints per embodiment
+BRIDGE_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_bridge.pt"                                                     # CoVer verifier trained on Bridge-V2
+FRACTAL_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_fractal.pt"    # CoVer verifier trained on fractal (Google Robot)
+
+if [[ "$EMBODIMENT" == "google_robot" ]]; then
+    PRETRAINED_CHECKPOINT="$FRACTAL_CHECKPOINT"
+    QAM_CKPT="$FRACTAL_QAM_CKPT"
+    VERIFIER_CKPT="$FRACTAL_VERIFIER_CKPT"
+    TASK_SUITES=(
+        simpler_google_open_top_drawer
+        # simpler_google_open_middle_drawer
+        # simpler_google_open_bottom_drawer
+        simpler_google_close_top_drawer
+        # simpler_google_close_middle_drawer
+        # simpler_google_close_bottom_drawer
+        simpler_google_apple_in_drawer
+        simpler_google_coke_horizontal
+        simpler_google_coke_vertical
+        simpler_google_coke_standing
+    )
+elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
+    PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
+    QAM_CKPT="$BRIDGE_QAM_CKPT"
+    VERIFIER_CKPT="$BRIDGE_VERIFIER_CKPT"
+    TASK_SUITES=(
+        simpler_put_eggplant_in_basket
+        simpler_spoon_on_towel
+        simpler_stack_cube
+        simpler_carrot_on_plate
+    )
+else
+    PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
+    QAM_CKPT="$BRIDGE_QAM_CKPT"
+    VERIFIER_CKPT="$BRIDGE_VERIFIER_CKPT"
+    TASK_SUITES=(
+        simpler_orange_juice_on_plate
+        simpler_spoon_on_towel_google
+        simpler_tape_measure_in_basket
+        simpler_toy_dinosaur_on_towel
+    )
+fi
+
+# ==========================================================================
+# RL2 (Compose - Always)
+# ==========================================================================
+for seed in "${SEEDS[@]}"; do
+    for task_suite in "${TASK_SUITES[@]}"; do
+        CUDA_VISIBLE_DEVICES=$GPU xvfb-run --auto-servernum -s "-screen 0 640x480x24" python ../run_simpler_eval_with_openpi.py \
+            --task_suite_name "$task_suite" \
+            --lang_transform_type rephrase \
+            --pretrained_checkpoint "$PRETRAINED_CHECKPOINT" \
+            --num_trials_per_task "$NUM_TRIALS_PER_TASK" \
+            --use_failure_prediction False \
+            --lang_rephrase_num_prefail "$LANG_REPHRASE_NUM_PREFAIL" \
+            --action_samples_prefail "$ACTION_SAMPLES_PREFAIL" \
+            --composed_samples_prefail "$COMPOSED_SAMPLES_PREFAIL" \
+            --use_verifier True \
+            --verifier_checkpoint "$VERIFIER_CKPT" \
+            --qam_ckpt "$QAM_CKPT" \
+            --merge_rel_weight "$MERGE_REL_WEIGHT" \
+            --critic cover \
+            --seed "$seed" \
+            --local_log_dir "$LOCAL_LOG_DIR" \
+            --wandb_project QAM
+    done
+done
