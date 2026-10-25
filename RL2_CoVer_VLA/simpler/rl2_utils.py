@@ -372,6 +372,127 @@ def compute_composed_actions(cfg, task_description, rephrased_list, lang_rephras
 
     return composed_actions, composed_actions_queue, w
 
+# RBF Baseline Fns
+def _compute_diversity_gradient(sample, action_chunk_horizon):
+    """
+    Compute RBF diversity gradient.
+
+    Uses the xyz dims (0:3) of the action chunk directly as a proxy for the EE
+    trajectory (the reference script converts to 3D world-space via FK, but that
+    adapter is not available here).
+    """
+    batch_size = sample.shape[0]
+    if batch_size < 2:
+        return None
+
+    with torch.enable_grad():
+        sample_grad = sample.detach().requires_grad_(True)
+        traj_flat = sample_grad[:, :action_chunk_horizon, :3].reshape(batch_size, -1)
+
+        # Pairwise inverse-distance repulsion potential
+        diff = traj_flat.unsqueeze(1) - traj_flat.unsqueeze(0)
+        dist = torch.sqrt((diff ** 2).sum(dim=2) + 1e-6)
+        mask = ~torch.eye(batch_size, dtype=torch.bool, device=sample.device)
+        potential = (1.0 / (dist + 1e-6) * mask.float()).sum()
+
+        grad = torch.autograd.grad(potential, sample_grad)[0]
+        grad_norm = torch.norm(grad)
+        normalized_grad = grad / (grad_norm + 1e-8) if grad_norm > 1e-8 else grad
+
+        return normalized_grad
+
+def get_rbf_actions(cfg, pi0_policy, processed_obs, image_key, task_list, batch_size, action_noise_std):
+    # Create batch observation dict
+    _batch_image = processed_obs['observation.images.top'].repeat(batch_size, 1, 1, 1)
+    _batch_state = processed_obs['observation.state'].repeat(batch_size, 1)
+
+    _observation = {
+        image_key: _batch_image,
+        "observation.state": _batch_state,
+        "task": task_list,
+    }
+    action_feature_dim = pi0_policy.config.action_feature.shape[0]
+    with torch.no_grad():
+        _past_key_values, _state, _prefix_pad_masks = pi0_policy.forward_pass_vlm(_observation, noise_std=action_noise_std)
+        # ########################################################################
+        # Sample noise
+        # ########################################################################
+        bsz, horizon, action_dim = _state.shape[0], pi0_policy.model.config.chunk_size, pi0_policy.model.config.max_action_dim
+        actions_shape = (bsz, horizon, action_dim)
+
+        noisy_action_torch = pi0_policy.model.sample_noise(actions_shape, _state.device, noise_std=action_noise_std)
+        noisy_action_np = noisy_action_torch.detach().cpu().float().numpy()
+
+        # ########################################################################
+        # Denoise with RBF diversity guidance (repulsion across the whole batch)
+        # ########################################################################
+        dt = -1.0 / pi0_policy.model.config.num_steps
+        time = torch.tensor(1.0, dtype=torch.float32, device=_state.device)
+        while time >= -dt / 2:
+            expanded_time = time.expand(bsz)
+            vel_vla, _ = pi0_policy.model.denoise_step(
+                _state,
+                _prefix_pad_masks,
+                _past_key_values,
+                noisy_action_torch,
+                expanded_time,
+            )
+            div_grad = _compute_diversity_gradient(
+                noisy_action_torch[:, :, :action_feature_dim], pi0_policy.config.n_action_steps
+            )
+            if div_grad is not None and time.item() > 0.5:
+                vel_vla[:, :, :3] += cfg.diversity_scale * div_grad[:, :, :3]
+            vel_vla = vel_vla.detach().cpu().float().numpy()
+            noisy_action_np += vel_vla * dt
+
+            noisy_action_torch = torch.from_numpy(noisy_action_np).to(_state.device, _state.dtype)
+            time += dt
+
+    rbf_actions = noisy_action_torch[:, :pi0_policy.config.n_action_steps]
+
+    # Unpad rbf_actions
+    rbf_actions = rbf_actions[:, :, :action_feature_dim]
+    rbf_actions = pi0_policy.unnormalize_outputs({"action": rbf_actions})["action"]
+
+    return rbf_actions
+
+def compute_rbf_actions(cfg, task_description, rephrased_list, lang_rephrase_num, composed_samples,
+                        processed_obs, image_key, pi0_policy, action_noise_std):
+    """Run VLA denoising with RBF diversity guidance (no QAM) for one action-selection step.
+
+    Mirrors compute_composed_actions so it can be swapped in via cfg.merge_mode == "RBF".
+
+    Returns:
+        rbf_actions: (B, n_action_steps, action_dim) denoised actions
+        rbf_actions_queue: deque of per-timestep actions, maxlen=cfg.n_action_steps
+        w: None (no compositional weights in RBF mode)
+    """
+    # ########################################################################
+    # VLA sampling
+    # ########################################################################
+    policy_batch_inference_size = composed_samples
+    batch_size = policy_batch_inference_size * lang_rephrase_num
+    rbf_actions_queue = deque([], maxlen=cfg.n_action_steps)
+
+    # Build unique instruction list
+    if rephrased_list is not None and lang_rephrase_num > 1:
+        unique_prompts = [task_description] + rephrased_list[:lang_rephrase_num - 1]
+    else:
+        unique_prompts = [task_description]
+
+    # Repeat each instruction for batch inference
+    task_list = []
+    for p in unique_prompts:
+        task_list.extend([p] * policy_batch_inference_size)
+
+    assert len(task_list) == batch_size, "Batch size mismatch"
+
+    rbf_actions = get_rbf_actions(cfg, pi0_policy, processed_obs, image_key, task_list, batch_size, action_noise_std)
+
+    rbf_actions_queue.extend(rbf_actions.transpose(0, 1))
+
+    return rbf_actions, rbf_actions_queue, None
+
 # Failure Prediction Fns
 def check_failure_prediction(
     hidden_states_last_token: torch.Tensor,

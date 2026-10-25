@@ -49,6 +49,7 @@ from rl2_utils import (
     load_failure_detection_model,
     run_policy_warmup,
     compute_composed_actions,
+    compute_rbf_actions,
     check_failure_prediction_lstm,
     save_logs_pkl,
     save_episode_meta_json,
@@ -116,8 +117,12 @@ class GenerateConfig:
     warmup: bool = True                 # Pass in a MAX of pre/post-fail batch size at step 0 to avoid OOM Crash
 
     # QAM Params
+    merge_mode: str = "compose"         # "compose" (VLA + QAM) or "RBF" (VLA + diversity repulsion baseline)
     merge_rel_weight: float = -1        # -1 means gaussian sampling of weights
     qam_ckpt: str = "third_party/qam/exp/SAVED/rl2-vla-qam-bridge/rl2_vla_qam_bridge_500k.pkl"
+
+    # RBF diversity params
+    diversity_scale: float = 37.5       # scale applied to the repulsion gradient in RBF mode
 
     # SAFE Params
     use_failure_prediction: bool = False
@@ -139,6 +144,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
 
     # Validate configuration
     assert cfg.pretrained_checkpoint is not None, "cfg.pretrained_checkpoint must not be None!"
+    assert cfg.merge_mode in ("compose", "RBF"), f"Unknown merge_mode '{cfg.merge_mode}'. Choose from: compose, RBF"
 
     # Set random seed
     set_seed_everywhere(cfg.seed)
@@ -176,6 +182,17 @@ def eval_simpler(cfg: GenerateConfig) -> None:
     print("=" * 80)
     print()
     log_file.write("=" * 80 + "\n")
+
+    # Report which diversity method is used for the composed_samples batch
+    if cfg.composed_samples > 0 or cfg.composed_samples_prefail > 0:
+        if cfg.merge_mode == "RBF":
+            merge_mode_msg = f"[merge_mode] RBF diversity baseline (VLA + repulsion, diversity_scale={cfg.diversity_scale}, no QAM)"
+        else:
+            merge_mode_msg = f"[merge_mode] Compose diversity (VLA + QAM, merge_rel_weight={cfg.merge_rel_weight})"
+    else:
+        merge_mode_msg = f"[merge_mode] {cfg.merge_mode} unused (composed_samples = composed_samples_prefail = 0)"
+    print(merge_mode_msg + "\n")
+    log_file.write(merge_mode_msg + "\n")
 
     # Initialize Weights & Biases logging
     if cfg.use_wandb:
@@ -243,8 +260,9 @@ def eval_simpler(cfg: GenerateConfig) -> None:
 
         curr_task = SAFE_TASK_MAP_DICT.get(original_task_description, cfg.task_suite_name)
         
-        # Load QAM model if enabled
-        if cfg.composed_samples > 0 or cfg.composed_samples_prefail > 0:
+        # Load QAM model if enabled (not needed for RBF baseline)
+        qam = None
+        if cfg.merge_mode == "compose" and (cfg.composed_samples > 0 or cfg.composed_samples_prefail > 0):
             qam = QAMInference(checkpoint_path = cfg.qam_ckpt)
 
         # Load failure prediction model if enabled
@@ -494,7 +512,20 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                     composed_actions_queue = None
                     w = None
 
-                    if composed_samples > 0:
+                    if composed_samples > 0 and cfg.merge_mode == "RBF":
+                        composed_actions, composed_actions_queue, w = compute_rbf_actions(
+                            cfg=cfg,
+                            task_description=task_description,
+                            rephrased_list=rephrased_list,
+                            lang_rephrase_num=lang_rephrase_num,
+                            composed_samples=composed_samples,
+                            processed_obs=processed_obs,
+                            image_key=image_key,
+                            pi0_policy=pi0_policy,
+                            action_noise_std=action_noise_std,
+                        )
+
+                    elif composed_samples > 0:
                         composed_actions, composed_actions_queue, w = compute_composed_actions(
                             cfg=cfg,
                             task_description=task_description,

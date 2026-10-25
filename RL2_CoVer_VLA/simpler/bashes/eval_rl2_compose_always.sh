@@ -16,8 +16,12 @@ LANG_REPHRASE_NUM_PREFAIL=8
 ACTION_SAMPLES_PREFAIL=1
 COMPOSED_SAMPLES_PREFAIL=5
 
+# Diversity method for composed samples: "compose" (VLA + QAM) or "RBF" (VLA + repulsion baseline)
+MERGE_MODE="RBF"
+DIVERSITY_SCALE=5.0   # RBF repulsion gradient scale (only used if MERGE_MODE="RBF")
+
 # Log Directory
-LOCAL_LOG_DIR="./experiments"
+LOCAL_LOG_DIR="./experiments_RBF_Sweep_div5.0"
 # LOCAL_LOG_DIR="/mnt/hdd/SAFE_ds/training_latents/rollouts"
 
 # Set to "IID" or "OOD" to select which task-suite type to evaluate.
@@ -77,6 +81,8 @@ for seed in "${SEEDS[@]}"; do
             --composed_samples_prefail "$COMPOSED_SAMPLES_PREFAIL" \
             --use_verifier True \
             --qam_ckpt "$QAM_CKPT" \
+            --merge_mode "$MERGE_MODE" \
+            --diversity_scale "$DIVERSITY_SCALE" \
             --critic cover \
             --seed "$seed" \
             --local_log_dir "$LOCAL_LOG_DIR" \
