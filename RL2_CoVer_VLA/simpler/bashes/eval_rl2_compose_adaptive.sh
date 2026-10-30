@@ -22,8 +22,12 @@ LANG_REPHRASE_NUM=8
 ACTION_SAMPLES=1
 COMPOSED_SAMPLES=5
 
+# Diversity method for composed samples: "compose" (VLA + QAM) or "RBF" (VLA + repulsion baseline)
+MERGE_MODE="RBF"
+DIVERSITY_SCALE=10.0   # RBF repulsion gradient scale (only used if MERGE_MODE="RBF")
+
 # Log Directory
-LOCAL_LOG_DIR="./experiments"
+LOCAL_LOG_DIR="./experiments_RBF"
 # LOCAL_LOG_DIR="/mnt/hdd/SAFE_ds/training_latents/rollouts"
 
 # Set to "IID" or "OOD" to select which task-suite type to evaluate.
@@ -124,6 +128,8 @@ for task_suite in "${TASK_SUITES[@]}"; do
                 --composed_samples "$COMPOSED_SAMPLES" \
                 --use_verifier True \
                 --qam_ckpt "$QAM_CKPT" \
+                --merge_mode "$MERGE_MODE" \
+                --diversity_scale "$DIVERSITY_SCALE" \
                 --critic cover \
                 --failure_cp_alpha "$cp_alpha" \
                 --seed "$seed" \
