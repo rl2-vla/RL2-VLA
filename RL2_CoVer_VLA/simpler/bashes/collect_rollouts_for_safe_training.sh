@@ -54,15 +54,15 @@ if [[ "$EMBODIMENT" == "google_robot" ]]; then
     VERIFIER_CKPT="$FRACTAL_VERIFIER_CKPT"
     TASK_SUITES=(
         simpler_google_open_top_drawer
-        simpler_google_open_middle_drawer
-        simpler_google_open_bottom_drawer
+        # simpler_google_open_middle_drawer
+        # simpler_google_open_bottom_drawer
         simpler_google_close_top_drawer
-        simpler_google_close_middle_drawer
-        simpler_google_close_bottom_drawer
-        simpler_google_apple_in_drawer
+        # simpler_google_close_middle_drawer
+        # simpler_google_close_bottom_drawer
+        # simpler_google_apple_in_drawer
         simpler_google_coke_horizontal
-        simpler_google_coke_vertical
-        simpler_google_coke_standing
+        # simpler_google_coke_vertical
+        # simpler_google_coke_standing
     )
 elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
     PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"

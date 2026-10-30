@@ -718,6 +718,10 @@ def eval_simpler(cfg: GenerateConfig) -> None:
                         prev_open = action_history[-2][-1] if len(action_history) > 1 else 1.0
                         action_history[-1][-1] = 1.0 if cmd < -0.1 else 0.0 if cmd > 0.1 else prev_open
 
+                # Google SAFE collection: execute zero action when done
+                if is_google_robot and cfg.log_safe_training_data and done:
+                    execute_action = np.zeros_like(execute_action)
+
                 # Execute action in environment
                 obs, reward, done, trunc, info = env.step(execute_action)
 
