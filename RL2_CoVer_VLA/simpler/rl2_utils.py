@@ -115,7 +115,7 @@ class QAMInference:
     #     )
     #     return actions
         
-def load_failure_detection_model(cfg, curr_task):
+def load_failure_detection_model(cfg, curr_task, eff_act_steps):
     print(f"\n{'='*80}")
     print("Loading Failure Prediction Model")
     print(f"{'='*80}")
@@ -177,13 +177,13 @@ def load_failure_detection_model(cfg, curr_task):
             cp_band = cp_band[0]
         print(f"CP band shape={cp_band.shape}, range=[{cp_band.min():.4f}, {cp_band.max():.4f}]")
 
-        # Stretch CP band to account for cfg.n_action_steps
-        # CP band was trained at frequency of cfg.n_action_steps, so interpolate to get all timesteps
+        # Stretch CP band to account for eff_act_steps (executed actions per chunk, not cfg.n_action_steps)
+        # CP band was trained at frequency of eff_act_steps (bridge 4, fractal 2), so interpolate to get all timesteps
         original_length = len(cp_band)
-        x_original = np.arange(original_length) * cfg.n_action_steps
-        x_new = np.arange(original_length * cfg.n_action_steps)
+        x_original = np.arange(original_length) * eff_act_steps
+        x_new = np.arange(original_length * eff_act_steps)
         cp_band = np.interp(x_new, x_original, cp_band)
-        print(f"Stretched CP band from {original_length} to {len(cp_band)} steps (act_steps={cfg.n_action_steps})")
+        print(f"Stretched CP band from {original_length} to {len(cp_band)} steps (eff_act_steps={eff_act_steps})")
     else:
         raise FileNotFoundError(f"CP band not found at {cp_band_path}")
     print(f"{'='*80}\n")

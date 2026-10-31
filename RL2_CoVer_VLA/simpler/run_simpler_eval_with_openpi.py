@@ -279,7 +279,7 @@ def eval_simpler(cfg: GenerateConfig) -> None:
         failure_model = None
         cp_band = None
         if cfg.use_failure_prediction:
-            failure_model, cp_band = load_failure_detection_model(cfg, curr_task)
+            failure_model, cp_band = load_failure_detection_model(cfg, curr_task, eff_act_steps)
 
         # Load rephrased instructions if using language transformation
         if cfg.lang_transform_type == "no_transform":
