@@ -52,8 +52,9 @@ export PRISMATIC_DATA_ROOT=.
 FAILURE_CHECKPOINT_DIR_IID="$REPO_ROOT/third_party/SAFE/scripts/batch_training/logs/SAVED/rl2_pi0_bridge_safe_ckpt_per_task_cp"
 # OOD ckpt has Combined CP bands
 FAILURE_CHECKPOINT_DIR_OOD="$REPO_ROOT/third_party/SAFE/scripts/batch_training/logs/SAVED/rl2_pi0_bridge_safe_ckpt_combined_cp"
-# TODO: Google Robot (fractal) SAFE ckpt + CP alphas JSON not trained yet
-FAILURE_CHECKPOINT_DIR_GOOGLE=""
+# Google Robot (fractal) SAFE ckpts, 3 tasks (IID = Taskwise CP bands, OOD = Combined CP bands)
+FAILURE_CHECKPOINT_DIR_GOOGLE_IID="$REPO_ROOT/third_party/SAFE/logs/open_pizero-fractal-lstm-lstm/20261031/022100"
+FAILURE_CHECKPOINT_DIR_GOOGLE_OOD="$REPO_ROOT/third_party/SAFE/logs/open_pizero-fractal-lstm-lstm/20261031/022157"
 
 # Pretrained checkpoints per embodiment
 BRIDGE_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"       # INTACT Pi0 finetuned on Bridge-V2
@@ -61,7 +62,7 @@ FRACTAL_CHECKPOINT="HaomingSong/lerobot-pi0-fractal"        # lerobot-format Pi0
 
 # QAM checkpoints per embodiment (flags.json must sit next to the .pkl)
 BRIDGE_QAM_CKPT="$REPO_ROOT/third_party/qam/exp/SAVED/rl2-vla-qam-bridge/rl2_vla_qam_bridge_500k.pkl"                          # QAM trained on Bridge-V2
-FRACTAL_QAM_CKPT="/home/coder/qam/exp/qam-reproduce/fractal_latents/fractal/qam_20260918_184842/params_900000.pkl"              # QAM trained on fractal (Google Robot)
+FRACTAL_QAM_CKPT="/home/coder/hdd/qam_ds/pi0_fractal/[Haomingsong_Pi0_FRACTAL_DATASET_normal_norm_diff_0_horz_mean_inv_temp_0.3_RL_nonempty_tasks_latents_SEED42_train_SEED10001]_qam_20260921_154022/params_1000000.pkl"              # QAM trained on fractal (Google Robot)
 
 # CoVer verifier checkpoints per embodiment
 BRIDGE_VERIFIER_CKPT="$REPO_ROOT/bridge_verifier/cover_verifier_bridge.pt"                                                     # CoVer verifier trained on Bridge-V2
@@ -73,18 +74,23 @@ if [[ "$EMBODIMENT" == "google_robot" ]]; then
     VERIFIER_CKPT="$FRACTAL_VERIFIER_CKPT"
     TASK_SUITES=(
         simpler_google_open_top_drawer
-        simpler_google_open_middle_drawer
-        simpler_google_open_bottom_drawer
+        # simpler_google_open_middle_drawer
+        # simpler_google_open_bottom_drawer
         simpler_google_close_top_drawer
-        simpler_google_close_middle_drawer
-        simpler_google_close_bottom_drawer
-        simpler_google_apple_in_drawer
+        # simpler_google_close_middle_drawer
+        # simpler_google_close_bottom_drawer
+        # simpler_google_apple_in_drawer
         simpler_google_coke_horizontal
-        simpler_google_coke_vertical
-        simpler_google_coke_standing
+        # simpler_google_coke_vertical
+        # simpler_google_coke_standing
     )
-    USE_TASKWISE_CP_BAND=False
-    FAILURE_CHECKPOINT_DIR="$FAILURE_CHECKPOINT_DIR_GOOGLE"
+    if [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
+        USE_TASKWISE_CP_BAND=True
+        FAILURE_CHECKPOINT_DIR="$FAILURE_CHECKPOINT_DIR_GOOGLE_IID"
+    else
+        USE_TASKWISE_CP_BAND=False
+        FAILURE_CHECKPOINT_DIR="$FAILURE_CHECKPOINT_DIR_GOOGLE_OOD"
+    fi
 elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
     PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"
     QAM_CKPT="$BRIDGE_QAM_CKPT"
@@ -113,8 +119,14 @@ fi
 
 # Per-(task_suite, seed) tuned CP alpha sweep values (no shared pattern, so kept in JSON
 # and looked up individually rather than encoded as a bash literal).
-CP_ALPHAS_JSON_IID="$SCRIPT_DIR/rl2_cp_alphas_per_task.json"
-CP_ALPHAS_JSON_OOD="$SCRIPT_DIR/rl2_cp_alphas_combined.json"
+if [[ "$EMBODIMENT" == "google_robot" ]]; then
+    # TODO: placeholders copied from Bridge alphas; replace with tuned Google alphas
+    CP_ALPHAS_JSON_IID="$SCRIPT_DIR/rl2_cp_alphas_google_per_task.json"
+    CP_ALPHAS_JSON_OOD="$SCRIPT_DIR/rl2_cp_alphas_google_combined.json"
+else
+    CP_ALPHAS_JSON_IID="$SCRIPT_DIR/rl2_cp_alphas_per_task.json"
+    CP_ALPHAS_JSON_OOD="$SCRIPT_DIR/rl2_cp_alphas_combined.json"
+fi
 
 get_cp_alphas() {
     local task_suite=$1 seed=$2
@@ -139,6 +151,10 @@ print(' '.join(str(a) for a in alphas))
 for task_suite in "${TASK_SUITES[@]}"; do
     for seed in "${SEEDS[@]}"; do
         read -ra cp_alphas <<< "$(get_cp_alphas "$task_suite" "$seed")"
+        if [ "${#cp_alphas[@]}" -eq 0 ]; then
+            echo "ERROR: no CP alphas found for task_suite=$task_suite seed=$seed" >&2
+            exit 1
+        fi
         if [ "$EVALUATE_TOP" = "1" ]; then
             cp_alphas=("${cp_alphas[0]}")
         fi
