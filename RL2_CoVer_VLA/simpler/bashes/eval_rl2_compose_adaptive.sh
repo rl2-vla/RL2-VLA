@@ -53,8 +53,8 @@ FAILURE_CHECKPOINT_DIR_IID="$REPO_ROOT/third_party/SAFE/scripts/batch_training/l
 # OOD ckpt has Combined CP bands
 FAILURE_CHECKPOINT_DIR_OOD="$REPO_ROOT/third_party/SAFE/scripts/batch_training/logs/SAVED/rl2_pi0_bridge_safe_ckpt_combined_cp"
 # Google Robot (fractal) SAFE ckpts, 3 tasks (IID = Taskwise CP bands, OOD = Combined CP bands)
-FAILURE_CHECKPOINT_DIR_GOOGLE_IID="$REPO_ROOT/third_party/SAFE/logs/open_pizero-fractal-lstm-lstm/20261031/022100"
-FAILURE_CHECKPOINT_DIR_GOOGLE_OOD="$REPO_ROOT/third_party/SAFE/logs/open_pizero-fractal-lstm-lstm/20261031/022157"
+FAILURE_CHECKPOINT_DIR_GOOGLE_IID="$REPO_ROOT/third_party/SAFE/scripts/batch_training/logs/SAVED/google-cover-Pi0-safe-8-5-0_Latents_padded_zero_actions_v1_0-6"
+FAILURE_CHECKPOINT_DIR_GOOGLE_OOD="$REPO_ROOT/third_party/SAFE/scripts/batch_training/logs/SAVED/google-cover-Pi0-safe-8-5-0_Latents_padded_zero_actions_v1_0-6_COMBINED"
 
 # Pretrained checkpoints per embodiment
 BRIDGE_CHECKPOINT="juexzz/INTACT-pi0-finetune-bridge"       # INTACT Pi0 finetuned on Bridge-V2
@@ -83,6 +83,7 @@ if [[ "$EMBODIMENT" == "google_robot" ]]; then
         simpler_google_coke_horizontal
         # simpler_google_coke_vertical
         # simpler_google_coke_standing
+        simpler_google_apple_in_open_drawer
     )
     if [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
         USE_TASKWISE_CP_BAND=True

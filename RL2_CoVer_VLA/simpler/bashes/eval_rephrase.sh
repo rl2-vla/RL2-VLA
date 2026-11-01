@@ -63,6 +63,7 @@ if [[ "$EMBODIMENT" == "google_robot" ]]; then
         simpler_google_coke_horizontal
         simpler_google_coke_vertical
         simpler_google_coke_standing
+        simpler_google_apple_in_open_drawer
     )
 elif [[ "$TASK_SUITE_TYPE" == "IID" ]]; then
     PRETRAINED_CHECKPOINT="$BRIDGE_CHECKPOINT"

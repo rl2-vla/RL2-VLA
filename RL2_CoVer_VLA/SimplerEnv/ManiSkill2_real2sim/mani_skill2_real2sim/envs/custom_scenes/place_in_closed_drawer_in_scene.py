@@ -282,3 +282,52 @@ class PlaceIntoClosedBottomDrawerCustomInSceneEnv(
     PlaceIntoClosedDrawerCustomInSceneEnv
 ):
     drawer_ids = ["bottom"]
+
+
+class PlaceObjectInOpenedDrawerInSceneEnv(PlaceObjectInClosedDrawerInSceneEnv):
+    """Same as PlaceObjectInClosedDrawerInSceneEnv, but the drawer starts open and the
+    episode starts directly at the place subtask (no instruction switching)."""
+
+    def reset(self, seed=None, options=None):
+        if options is None:
+            options = dict()
+        options = options.copy()
+        obj_init_options = dict(options.get("obj_init_options", {}))
+        if "cabinet_init_qpos" not in obj_init_options:
+            obj_init_options["cabinet_init_qpos"] = 0.2 # same opening as CloseDrawerInSceneEnv
+        options["obj_init_options"] = obj_init_options
+        return super().reset(seed=seed, options=options)
+
+    def _initialize_episode_stats(self):
+        super()._initialize_episode_stats()
+        self.cur_subtask_id = 1 # start at the place subtask
+
+    def advance_to_next_subtask(self):
+        pass # single-subtask task
+
+
+@register_env("PlaceIntoOpenedDrawerCustomInScene-v0", max_episode_steps=113)
+class PlaceIntoOpenedDrawerCustomInSceneEnv(
+    PlaceObjectInOpenedDrawerInSceneEnv, CustomOtherObjectsInSceneEnv
+):
+    DEFAULT_MODEL_JSON = "info_pick_custom_baked_tex_v1.json"
+    drawer_ids = ["top", "middle", "bottom"]
+
+
+@register_env("PlaceIntoOpenedTopDrawerCustomInScene-v0", max_episode_steps=113)
+class PlaceIntoOpenedTopDrawerCustomInSceneEnv(PlaceIntoOpenedDrawerCustomInSceneEnv):
+    drawer_ids = ["top"]
+
+
+@register_env("PlaceIntoOpenedMiddleDrawerCustomInScene-v0", max_episode_steps=113)
+class PlaceIntoOpenedMiddleDrawerCustomInSceneEnv(
+    PlaceIntoOpenedDrawerCustomInSceneEnv
+):
+    drawer_ids = ["middle"]
+
+
+@register_env("PlaceIntoOpenedBottomDrawerCustomInScene-v0", max_episode_steps=113)
+class PlaceIntoOpenedBottomDrawerCustomInSceneEnv(
+    PlaceIntoOpenedDrawerCustomInSceneEnv
+):
+    drawer_ids = ["bottom"]

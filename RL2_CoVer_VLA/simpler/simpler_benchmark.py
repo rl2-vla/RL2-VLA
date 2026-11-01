@@ -127,6 +127,9 @@ task_map = {
     "simpler_google_apple_in_drawer": [
         "google_robot_place_apple_in_closed_top_drawer",
     ],
+    "simpler_google_apple_in_open_drawer": [
+        "google_robot_place_apple_in_open_top_drawer",
+    ],
 
 }
 
@@ -407,4 +410,11 @@ class SIMPLER_GOOGLE_APPLE_IN_DRAWER(GoogleRobotSimplerBenchmark):
     def __init__(self):
         super().__init__()
         self.name = "simpler_google_apple_in_drawer"
+        self._make_benchmark()
+
+@register_benchmark
+class SIMPLER_GOOGLE_APPLE_IN_OPEN_DRAWER(GoogleRobotSimplerBenchmark):
+    def __init__(self):
+        super().__init__()
+        self.name = "simpler_google_apple_in_open_drawer"
         self._make_benchmark()

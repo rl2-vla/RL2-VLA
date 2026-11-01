@@ -35,6 +35,7 @@ DEFAULT_GOOGLE_ROBOT_TASK_SUITES = [
     "simpler_google_close_middle_drawer",
     "simpler_google_close_bottom_drawer",
     # "simpler_google_apple_in_drawer",
+    "simpler_google_apple_in_open_drawer",
     "simpler_google_coke_horizontal",
     "simpler_google_coke_vertical",
     "simpler_google_coke_standing",
